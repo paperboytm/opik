@@ -67,6 +67,13 @@ public class OnlineScoringSpanLlmAsJudgeScorer extends OnlineScoringBaseScorer<S
      */
     private static final int MAX_PROMPT_FIELD_CHARS = 4_000;
 
+    /**
+     * Truncation marker hint for the no-tools inline {@code {{span}}} fallback. There are no read/jq
+     * tools to drill in, so the hint just flags that the value was truncated rather than pointing at a
+     * (non-existent) follow-up tool.
+     */
+    private static final String INLINE_TRUNCATION_HINT = "full content not shown";
+
     private final ServiceTogglesConfig serviceTogglesConfig;
     private final ChatCompletionService aiProxyService;
     private final Logger userFacingLogger;
@@ -267,10 +274,20 @@ public class OnlineScoringSpanLlmAsJudgeScorer extends OnlineScoringBaseScorer<S
                     // REQUIRED on the first call only forces ≥1 tool call; follow-ups switch to AUTO in
                     // handleToolCalls so the model can decide when to stop investigating.
                     scoreRequest = OnlineScoringEngine.addToolSpecs(scoreRequest, ToolChoice.REQUIRED, toolRegistry);
+                } else if (referencesSpan && spanStructureJson != null) {
+                    // Inline fallback: {{span}} on a non-tool-calling provider (toggle ON, real structure).
+                    // No read/jq tools to drill in, so cap the substitutions to bound the context window —
+                    // otherwise a large span would inject uncapped and could overflow the model's context.
+                    // No drill-down hint: the model can't act on one, so over-cap values are just truncated.
+                    scoreRequest = OnlineScoringEngine.prepareSpanLlmRequest(
+                            message.llmAsJudgeCode(), span,
+                            llmProviderFactory.getStructuredOutputStrategy(modelName),
+                            MAX_PROMPT_FIELD_CHARS, INLINE_TRUNCATION_HINT, spanStructureJson);
+                    structuredRequest = scoreRequest;
                 } else if (referencesSpan) {
                     // Inline path that still injects the {{span}} structure so the variable renders rather
-                    // than leaking the bare sentinel. Covers two cases: toggle OFF (spanStructureJson is
-                    // null → renders "{}") and toggle ON but a non-tool-calling provider (real structure).
+                    // than leaking the bare sentinel. Toggle OFF: spanStructureJson is null → renders "{}"
+                    // (tiny, no cap needed; user variables stay uncapped as on the normal inline path).
                     scoreRequest = OnlineScoringEngine.prepareSpanLlmRequest(
                             message.llmAsJudgeCode(), span,
                             llmProviderFactory.getStructuredOutputStrategy(modelName), spanStructureJson);

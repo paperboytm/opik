@@ -338,6 +338,49 @@ class OnlineScoringSpanLlmAsJudgeScorerTest {
     }
 
     @Test
+    void spanVariableOnNonToolProviderCapsInjectedStructure() {
+        // {{span}} + agentic tools ON, but the provider can't call tools → inline fallback. The injected
+        // span structure (built from the full span) must be CAPPED so a large span can't overflow the
+        // model's context window; without the cap the whole span input/output would be inlined verbatim.
+        var code = JsonUtils.readValue(EVALUATOR_JSON_WITH_SPAN, SpanLlmAsJudgeCode.class);
+        String tailMarker = "TAILMARKER" + RandomStringUtils.secure().nextAlphanumeric(12);
+        String hugeText = "x".repeat(8_000) + tailMarker;
+        var span = Span.builder()
+                .id(UUID.randomUUID())
+                .projectId(UUID.randomUUID())
+                .projectName("project-" + RandomStringUtils.secure().nextAlphanumeric(8))
+                .traceId(UUID.randomUUID())
+                .name("span-" + RandomStringUtils.secure().nextAlphanumeric(8))
+                .startTime(Instant.now())
+                .input(JsonUtils.getJsonNodeFromString("{\"messages\":\"" + hugeText + "\"}"))
+                .build();
+        var message = buildMessage(span, code);
+
+        when(serviceTogglesConfig.isAgenticToolsEnabled()).thenReturn(true);
+        // OLLAMA does not support tool-calling → the {{span}} rule falls back to the inline path.
+        when(llmProviderFactory.getLlmProvider("gpt-test")).thenReturn(LlmProvider.OLLAMA);
+        when(llmProviderFactory.getStructuredOutputStrategy("gpt-test")).thenReturn(new ToolCallingStrategy());
+        when(attachmentService.getAttachmentInfoByEntity(
+                any(), eq(com.comet.opik.api.attachment.EntityType.SPAN), any()))
+                .thenReturn(Mono.just(List.of()));
+        ArgumentCaptor<ChatRequest> requestCaptor = ArgumentCaptor.forClass(ChatRequest.class);
+        when(aiProxyService.scoreTrace(requestCaptor.capture(), any(), any()))
+                .thenReturn(ChatResponse.builder().aiMessage(AiMessage.aiMessage(LLM_RESPONSE)).build());
+        when(feedbackScoreService.scoreBatchOfSpans(any())).thenReturn(Mono.empty());
+
+        scorer.score(message).block();
+
+        // Non-tool provider → inline fallback: no tool specs attached.
+        assertThat(requestCaptor.getValue().toolSpecifications()).isNullOrEmpty();
+        String prompt = ((UserMessage) requestCaptor.getValue().messages().get(0)).singleText();
+        // The structure is injected (real span id) but CAPPED: the truncation marker is present and the
+        // tail of the oversized input was dropped, so the prompt can't grow unbounded with span size.
+        assertThat(prompt).contains(span.id().toString());
+        assertThat(prompt).contains("[TRUNCATED");
+        assertThat(prompt).doesNotContain(tailMarker);
+    }
+
+    @Test
     void noSpanVariableUsesInlinePathWithoutToolsOrAttachmentFetch() {
         var code = JsonUtils.readValue(EVALUATOR_JSON_INLINE, SpanLlmAsJudgeCode.class);
         var span = createSpan();

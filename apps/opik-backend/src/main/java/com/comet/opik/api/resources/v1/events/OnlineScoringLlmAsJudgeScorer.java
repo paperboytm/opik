@@ -68,6 +68,13 @@ public class OnlineScoringLlmAsJudgeScorer extends OnlineScoringBaseScorer<Trace
      */
     private static final int MAX_PROMPT_FIELD_CHARS = 4_000;
 
+    /**
+     * Truncation marker hint for the no-tools inline {@code {{trace}}} fallback. There are no read/jq
+     * tools to drill in, so the hint just flags that the value was truncated rather than pointing at a
+     * (non-existent) follow-up tool.
+     */
+    private static final String INLINE_TRUNCATION_HINT = "full content not shown";
+
     private final ChatCompletionService aiProxyService;
     private final Logger userFacingLogger;
     private final LlmProviderFactory llmProviderFactory;
@@ -389,6 +396,18 @@ public class OnlineScoringLlmAsJudgeScorer extends OnlineScoringBaseScorer<Trace
                             message.llmAsJudgeCode(), trace,
                             llmProviderFactory.getStructuredOutputStrategy(modelName),
                             message.promptType(), MAX_PROMPT_FIELD_CHARS, drillDownHint, spans, traceStructureJson);
+                } else if (referencesTrace) {
+                    // Inline fallback for a {{trace}} rule on a non-tool-calling provider: the structure was
+                    // built at FULL tier for the (unavailable) tools path, and there are no read/jq tools to
+                    // drill in here, so cap the substitutions to bound the context window — otherwise a large
+                    // trace would inject uncapped and could overflow the model's context. No drill-down hint:
+                    // the model can't act on one, so over-cap values are simply truncated.
+                    scoreRequest = OnlineScoringEngine.prepareLlmRequest(
+                            message.llmAsJudgeCode(), trace,
+                            llmProviderFactory.getStructuredOutputStrategy(modelName),
+                            message.promptType(), MAX_PROMPT_FIELD_CHARS, INLINE_TRUNCATION_HINT, spans,
+                            traceStructureJson);
+                    structuredRequest = scoreRequest;
                 } else {
                     scoreRequest = OnlineScoringEngine.prepareLlmRequest(
                             message.llmAsJudgeCode(), trace,
