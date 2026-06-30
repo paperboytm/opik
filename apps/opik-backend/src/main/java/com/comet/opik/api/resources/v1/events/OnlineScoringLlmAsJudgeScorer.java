@@ -60,21 +60,6 @@ import static com.comet.opik.infrastructure.log.LogContextAware.wrapWithMdc;
 @Slf4j
 public class OnlineScoringLlmAsJudgeScorer extends OnlineScoringBaseScorer<TraceToScoreLlmAsJudge> {
 
-    /**
-     * Per-variable substitution cap for the test-suite-assertion (tool-enabled) path. ≈ 4 KB chars
-     * (~ 1 K tokens via the {@code Tokens.estimate} convention) is large enough that small trace
-     * input/output blobs render inline (cheap, no tool round-trip) but small enough that a huge
-     * trace doesn't blow context — the agent fetches the rest via the {@code read} tool.
-     */
-    private static final int MAX_PROMPT_FIELD_CHARS = 4_000;
-
-    /**
-     * Truncation marker hint for the no-tools inline {@code {{trace}}} fallback. There are no read/jq
-     * tools to drill in, so the hint just flags that the value was truncated rather than pointing at a
-     * (non-existent) follow-up tool.
-     */
-    private static final String INLINE_TRUNCATION_HINT = "full content not shown";
-
     private final ChatCompletionService aiProxyService;
     private final Logger userFacingLogger;
     private final LlmProviderFactory llmProviderFactory;

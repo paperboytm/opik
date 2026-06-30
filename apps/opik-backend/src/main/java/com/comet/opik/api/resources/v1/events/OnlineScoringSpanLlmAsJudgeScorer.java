@@ -60,20 +60,6 @@ import static com.comet.opik.infrastructure.log.LogContextAware.wrapWithMdc;
 @Slf4j
 public class OnlineScoringSpanLlmAsJudgeScorer extends OnlineScoringBaseScorer<SpanToScoreLlmAsJudge> {
 
-    /**
-     * Per-variable substitution cap for the agentic-tools path — same rationale as the trace scorer:
-     * small span input/output renders inline (no tool round-trip), a huge span is truncated with a
-     * drill-down hint and the agent pulls the rest via {@code read} / {@code jq}.
-     */
-    private static final int MAX_PROMPT_FIELD_CHARS = 4_000;
-
-    /**
-     * Truncation marker hint for the no-tools inline {@code {{span}}} fallback. There are no read/jq
-     * tools to drill in, so the hint just flags that the value was truncated rather than pointing at a
-     * (non-existent) follow-up tool.
-     */
-    private static final String INLINE_TRUNCATION_HINT = "full content not shown";
-
     private final ServiceTogglesConfig serviceTogglesConfig;
     private final ChatCompletionService aiProxyService;
     private final Logger userFacingLogger;

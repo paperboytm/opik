@@ -63,6 +63,22 @@ public abstract class OnlineScoringBaseScorer<M extends RedisSubscriberMessage> 
     public static final int TRACE_PAGE_LIMIT = 2000;
 
     /**
+     * Per-variable substitution cap for the agentic-tools / structure-injection paths, shared by the
+     * trace- and span-level scorers. ≈ 4 KB chars (~ 1 K tokens via the {@code Tokens.estimate}
+     * convention) is large enough that small trace/span input/output renders inline (cheap, no tool
+     * round-trip) but small enough that a huge entity doesn't blow context — the agent fetches the rest
+     * via the {@code read} tool, or, on the no-tools inline fallback, the value is simply truncated.
+     */
+    protected static final int MAX_PROMPT_FIELD_CHARS = 4_000;
+
+    /**
+     * Truncation marker hint for the no-tools inline {@code {{trace}}} / {@code {{span}}} fallback. There
+     * are no {@code read}/{@code jq} tools to drill in, so the hint just flags that the value was
+     * truncated rather than pointing at a (non-existent) follow-up tool.
+     */
+    protected static final String INLINE_TRUNCATION_HINT = "full content not shown";
+
+    /**
      * Attachment-upload race tolerance for the {@code {{trace}}} / {@code {{span}}} structures. The SDK
      * uploads an entity's attachment a short moment <em>after</em> the entity itself is ingested, so a
      * scoring run triggered immediately can read the attachment table before the persistent copy lands.
