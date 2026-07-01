@@ -107,6 +107,9 @@ public interface TraceDAO {
 
     Mono<TracePage> find(int size, int page, TraceSearchCriteria traceSearchCriteria, Connection connection);
 
+    Mono<Boolean> hasProjectTraces(UUID projectId, UUID uuidFromTime, UUID uuidToTime, String source,
+            String visibilityMode, Connection connection);
+
     Mono<Void> partialInsert(UUID projectId, TraceUpdate traceUpdate, UUID traceId, Connection connection);
 
     Mono<List<WorkspaceAndResourceId>> getTraceWorkspace(Set<UUID> traceIds, Connection connection);
@@ -1809,6 +1812,22 @@ class TraceDAOImpl implements TraceDAO {
                 HAVING <trace_aggregation_filters>
                 <endif>
             ) AS latest_rows
+            SETTINGS log_comment = '<log_comment>'
+            ;
+            """;
+
+    private static final String EXISTS_BY_PROJECT_ID = """
+            SELECT 1 AS found
+            FROM traces
+            WHERE workspace_id = :workspace_id
+            AND project_id = :project_id
+            <if(uuid_from_time)> AND id >= :uuid_from_time
+                AND toMonday(id_at) >= toMonday(UUIDv7ToDateTime(toUUID(:uuid_from_time), 'UTC')) <endif>
+            <if(uuid_to_time)> AND id \\<= :uuid_to_time
+                AND toMonday(id_at) \\<= toMonday(UUIDv7ToDateTime(toUUID(:uuid_to_time), 'UTC')) <endif>
+            <if(source)> AND (source = :source <if(legacy_source)>OR source = :legacy_source<endif>) <endif>
+            <if(visibility_mode)> AND visibility_mode = :visibility_mode <endif>
+            LIMIT 1
             SETTINGS log_comment = '<log_comment>'
             ;
             """;
@@ -3872,6 +3891,54 @@ class TraceDAOImpl implements TraceDAO {
             Segment segment = startSegment("traces", "Clickhouse", "findCount");
 
             return Mono.from(statement.execute())
+                    .doFinally(signalType -> endSegment(segment));
+        });
+    }
+
+    @Override
+    @WithSpan
+    public Mono<Boolean> hasProjectTraces(
+            @NonNull UUID projectId, UUID uuidFromTime, UUID uuidToTime, String source, String visibilityMode,
+            @NonNull Connection connection) {
+        return makeMonoContextAware((userName, workspaceId) -> {
+            var template = getSTWithLogComment(EXISTS_BY_PROJECT_ID, "exists_traces_by_project_id", workspaceId,
+                    userName, "");
+
+            Optional.ofNullable(uuidFromTime).ifPresent(value -> template.add("uuid_from_time", value));
+            Optional.ofNullable(uuidToTime).ifPresent(value -> template.add("uuid_to_time", value));
+            Optional.ofNullable(source).ifPresent(value -> {
+                template.add("source", value);
+                Source.legacyFallbackDbValue(value).ifPresent(legacySource -> template.add("legacy_source",
+                        legacySource));
+            });
+            Optional.ofNullable(visibilityMode).ifPresent(value -> template.add("visibility_mode", value));
+
+            var statement = connection.createStatement(template.render())
+                    .bind("project_id", projectId)
+                    .bind("workspace_id", workspaceId);
+
+            if (uuidFromTime != null) {
+                statement.bind("uuid_from_time", uuidFromTime);
+            }
+            if (uuidToTime != null) {
+                statement.bind("uuid_to_time", uuidToTime);
+            }
+            if (source != null) {
+                statement.bind("source", source);
+                var legacySource = Source.legacyFallbackDbValue(source);
+                if (legacySource.isPresent()) {
+                    statement.bind("legacy_source", legacySource.get());
+                }
+            }
+            if (visibilityMode != null) {
+                statement.bind("visibility_mode", visibilityMode);
+            }
+
+            Segment segment = startSegment("traces", "Clickhouse", "exists");
+
+            return Mono.from(statement.execute())
+                    .flatMapMany(result -> result.map((row, rowMetadata) -> true))
+                    .hasElements()
                     .doFinally(signalType -> endSegment(segment));
         });
     }

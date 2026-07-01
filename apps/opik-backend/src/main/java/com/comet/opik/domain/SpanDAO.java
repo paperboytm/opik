@@ -1178,6 +1178,19 @@ public class SpanDAO {
             ;
             """;
 
+    private static final String EXISTS_BY_PROJECT_ID = """
+            SELECT 1 AS found
+            FROM spans
+            WHERE workspace_id = :workspace_id
+            AND project_id = :project_id
+            <if(uuid_from_time)> AND id >= :uuid_from_time <endif>
+            <if(uuid_to_time)> AND id \\<= :uuid_to_time <endif>
+            <if(source)> AND (source = :source <if(legacy_source)>OR source = :legacy_source<endif>) <endif>
+            LIMIT 1
+            SETTINGS log_comment = '<log_comment>'
+            ;
+            """;
+
     private static final String DELETE_BY_IDS = """
             DELETE FROM spans
             WHERE id IN :ids
@@ -2539,6 +2552,48 @@ public class SpanDAO {
             return Flux.from(statement.execute())
                     .doFinally(signalType -> endSegment(segment));
         });
+    }
+
+    @WithSpan
+    public Mono<Boolean> hasProjectSpans(@NonNull UUID projectId, UUID uuidFromTime, UUID uuidToTime, String source) {
+        return Mono.from(connectionFactory.create())
+                .flatMap(connection -> makeMonoContextAware((userName, workspaceId) -> {
+                    var template = getSTWithLogComment(EXISTS_BY_PROJECT_ID, "exists_spans_by_project_id",
+                            workspaceId, userName, "");
+
+                    Optional.ofNullable(uuidFromTime).ifPresent(value -> template.add("uuid_from_time", value));
+                    Optional.ofNullable(uuidToTime).ifPresent(value -> template.add("uuid_to_time", value));
+                    Optional.ofNullable(source).ifPresent(value -> {
+                        template.add("source", value);
+                        Source.legacyFallbackDbValue(value).ifPresent(legacySource -> template.add("legacy_source",
+                                legacySource));
+                    });
+
+                    var statement = connection.createStatement(template.render())
+                            .bind("project_id", projectId)
+                            .bind("workspace_id", workspaceId);
+
+                    if (uuidFromTime != null) {
+                        statement.bind("uuid_from_time", uuidFromTime);
+                    }
+                    if (uuidToTime != null) {
+                        statement.bind("uuid_to_time", uuidToTime);
+                    }
+                    if (source != null) {
+                        statement.bind("source", source);
+                        var legacySource = Source.legacyFallbackDbValue(source);
+                        if (legacySource.isPresent()) {
+                            statement.bind("legacy_source", legacySource.get());
+                        }
+                    }
+
+                    Segment segment = startSegment("spans", "Clickhouse", "exists");
+
+                    return Mono.from(statement.execute())
+                            .flatMapMany(result -> result.map((row, rowMetadata) -> true))
+                            .hasElements()
+                            .doFinally(signalType -> endSegment(segment));
+                }));
     }
 
     private ST newFindTemplate(String query, SpanSearchCriteria spanSearchCriteria, String queryName,

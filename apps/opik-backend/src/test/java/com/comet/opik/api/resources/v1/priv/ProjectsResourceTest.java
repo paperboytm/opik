@@ -19,6 +19,7 @@ import com.comet.opik.api.Span;
 import com.comet.opik.api.Trace;
 import com.comet.opik.api.TraceUpdate;
 import com.comet.opik.api.Visibility;
+import com.comet.opik.api.VisibilityMode;
 import com.comet.opik.api.error.ErrorMessage;
 import com.comet.opik.api.filter.Operator;
 import com.comet.opik.api.filter.TraceField;
@@ -2378,6 +2379,71 @@ class ProjectsResourceTest {
 
     }
 
+    @Nested
+    @DisplayName("Get: {id}/logs/existence")
+    class GetProjectLogsExistence {
+
+        @Test
+        @DisplayName("when project has no logs, then return false for traces and spans")
+        void getProjectLogsExistence__whenProjectHasNoLogs__thenReturnFalse() {
+            var project = factory.manufacturePojo(Project.class);
+            UUID projectId = createProject(project);
+
+            var existence = projectResourceClient.getLogsExistence(projectId, null, null, Source.SDK.getValue(),
+                    VisibilityMode.DEFAULT.getValue(), API_KEY, TEST_WORKSPACE);
+
+            assertThat(existence.hasTraces()).isFalse();
+            assertThat(existence.hasSpans()).isFalse();
+        }
+
+        @Test
+        @DisplayName("when project has an SDK default trace, then return trace existence only")
+        void getProjectLogsExistence__whenProjectHasTrace__thenReturnTraceExistenceOnly() {
+            var project = factory.manufacturePojo(Project.class);
+            UUID projectId = createProject(project);
+
+            createTrace(project.name(), Source.SDK);
+
+            var existence = projectResourceClient.getLogsExistence(projectId, null, null, Source.SDK.getValue(),
+                    VisibilityMode.DEFAULT.getValue(), API_KEY, TEST_WORKSPACE);
+
+            assertThat(existence.hasTraces()).isTrue();
+            assertThat(existence.hasSpans()).isFalse();
+        }
+
+        @Test
+        @DisplayName("when project has an SDK span, then return span existence only")
+        void getProjectLogsExistence__whenProjectHasSpan__thenReturnSpanExistenceOnly() {
+            var project = factory.manufacturePojo(Project.class);
+            UUID projectId = createProject(project);
+
+            createSpan(project.name(), Source.SDK);
+
+            var existence = projectResourceClient.getLogsExistence(projectId, null, null, Source.SDK.getValue(),
+                    VisibilityMode.DEFAULT.getValue(), API_KEY, TEST_WORKSPACE);
+
+            assertThat(existence.hasTraces()).isFalse();
+            assertThat(existence.hasSpans()).isTrue();
+        }
+
+        @Test
+        @DisplayName("when logs only match another source, then do not report SDK traces")
+        void getProjectLogsExistence__whenLogsDoNotMatchSource__thenReturnFalse() {
+            var project = factory.manufacturePojo(Project.class);
+            UUID projectId = createProject(project);
+
+            createTrace(project.name(), Source.EXPERIMENT);
+
+            var sdkDefaultExistence = projectResourceClient.getLogsExistence(projectId, null, null,
+                    Source.SDK.getValue(), VisibilityMode.DEFAULT.getValue(), API_KEY, TEST_WORKSPACE);
+            var experimentDefaultExistence = projectResourceClient.getLogsExistence(projectId, null, null,
+                    Source.EXPERIMENT.getValue(), VisibilityMode.DEFAULT.getValue(), API_KEY, TEST_WORKSPACE);
+
+            assertThat(sdkDefaultExistence.hasTraces()).isFalse();
+            assertThat(experimentDefaultExistence.hasTraces()).isTrue();
+        }
+    }
+
     private UUID createCreateTrace(String projectName, String apiKey, String workspaceName) {
         var trace = factory.manufacturePojo(Trace.class).toBuilder()
                 .projectName(projectName)
@@ -2385,6 +2451,36 @@ class ProjectsResourceTest {
 
         traceResourceClient.batchCreateTraces(List.of(trace), apiKey, workspaceName);
         return trace.id();
+    }
+
+    private void createTrace(String projectName, Source source) {
+        var trace = factory.manufacturePojo(Trace.class).toBuilder()
+                .id(null)
+                .projectName(projectName)
+                .source(source)
+                .errorInfo(null)
+                .usage(null)
+                .guardrailsValidations(null)
+                .feedbackScores(null)
+                .totalEstimatedCost(null)
+                .build();
+
+        traceResourceClient.batchCreateTraces(List.of(trace), API_KEY, TEST_WORKSPACE);
+    }
+
+    private void createSpan(String projectName, Source source) {
+        var span = factory.manufacturePojo(Span.class).toBuilder()
+                .id(null)
+                .projectName(projectName)
+                .traceId(UUID.randomUUID())
+                .source(source)
+                .errorInfo(null)
+                .usage(null)
+                .feedbackScores(null)
+                .totalEstimatedCost(null)
+                .build();
+
+        spanResourceClient.batchCreateSpans(List.of(span), API_KEY, TEST_WORKSPACE);
     }
 
     private Trace getTrace(UUID id, String apiKey, String workspaceName) {

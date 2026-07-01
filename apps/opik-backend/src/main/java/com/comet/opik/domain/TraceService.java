@@ -91,6 +91,9 @@ public interface TraceService {
 
     Mono<TracePage> find(int page, int size, TraceSearchCriteria criteria);
 
+    Mono<Boolean> hasProjectTraces(UUID projectId, UUID uuidFromTime, UUID uuidToTime, String source,
+            String visibilityMode);
+
     Mono<Boolean> validateTraceWorkspace(String workspaceId, Set<UUID> traceIds);
 
     Mono<TraceCountResponse> countTracesPerWorkspace();
@@ -508,6 +511,16 @@ class TraceServiceImpl implements TraceService {
                             return Mono.just(tracePage);
                         }))
                 .switchIfEmpty(Mono.just(TracePage.empty(page, traceSortingFactory.getSortableFields())));
+    }
+
+    @Override
+    @WithSpan
+    public Mono<Boolean> hasProjectTraces(
+            @NonNull UUID projectId, UUID uuidFromTime, UUID uuidToTime, String source, String visibilityMode) {
+        return projectService.resolveProjectIdAndVerifyVisibility(projectId, null)
+                .flatMap(resolvedProjectId -> template.nonTransaction(connection -> dao.hasProjectTraces(
+                        resolvedProjectId, uuidFromTime, uuidToTime, source, visibilityMode, connection)))
+                .switchIfEmpty(Mono.just(false));
     }
 
     @Override

@@ -2,6 +2,7 @@ package com.comet.opik.api.resources.utils.resources;
 
 import com.comet.opik.api.FeedbackScoreNames;
 import com.comet.opik.api.Project;
+import com.comet.opik.api.ProjectLogsExistence;
 import com.comet.opik.api.ProjectStatsSummary;
 import com.comet.opik.api.TokenUsageNames;
 import com.comet.opik.api.filter.TraceFilter;
@@ -23,6 +24,7 @@ import uk.co.jemos.podam.api.PodamFactory;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -175,6 +177,37 @@ public class ProjectResourceClient {
                 .header(HttpHeaders.AUTHORIZATION, apiKey)
                 .header(RequestContext.WORKSPACE_HEADER, workspaceName)
                 .get();
+    }
+
+    public ProjectLogsExistence getLogsExistence(UUID projectId, Instant fromTime, Instant toTime, String source,
+            String visibilityMode, String apiKey, String workspaceName) {
+        WebTarget target = client.target(RESOURCE_PATH.formatted(baseURI))
+                .path(projectId.toString())
+                .path("logs")
+                .path("existence");
+
+        if (fromTime != null) {
+            target = target.queryParam("from_time", fromTime);
+        }
+        if (toTime != null) {
+            target = target.queryParam("to_time", toTime);
+        }
+        if (StringUtils.isNotBlank(source)) {
+            target = target.queryParam("source", source);
+        }
+        if (StringUtils.isNotBlank(visibilityMode)) {
+            target = target.queryParam("visibility_mode", visibilityMode);
+        }
+
+        try (var response = target
+                .request()
+                .header(HttpHeaders.AUTHORIZATION, apiKey)
+                .header(RequestContext.WORKSPACE_HEADER, workspaceName)
+                .get()) {
+
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.SC_OK);
+            return response.readEntity(ProjectLogsExistence.class);
+        }
     }
 
     public KpiCardResponse getKpiCards(UUID projectId, KpiCardRequest request, String apiKey, String workspaceName) {

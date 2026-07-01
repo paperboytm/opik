@@ -132,6 +132,7 @@ import { formatDuration } from "@/lib/date";
 import { formatCost } from "@/lib/money";
 import TimeCell from "@/shared/DataTableCells/TimeCell";
 import useTracesOrSpansStatistic from "@/hooks/useTracesOrSpansStatistic";
+import useProjectLogsExistence from "@/api/projects/useProjectLogsExistence";
 import { useDynamicColumnsCache } from "@/hooks/useDynamicColumnsCache";
 import { useIsFeatureEnabled } from "@/contexts/feature-toggles-provider";
 import { FeatureToggleKeys } from "@/types/feature-toggles";
@@ -688,63 +689,6 @@ const SPAN_CHIP_ORDER: string[] = [
 const TRACE_DEFAULT_PINNED_CHIPS = ["with_errors", "tags", "metadata"];
 const SPAN_DEFAULT_PINNED_CHIPS = ["type", "tags", "with_errors", "metadata"];
 
-const TRACE_EXISTENCE_EXCLUDE_FIELDS = [
-  "name",
-  "start_time",
-  "end_time",
-  "input",
-  "output",
-  "metadata",
-  "tags",
-  "error_info",
-  "usage",
-  "created_at",
-  "created_by",
-  "last_updated_by",
-  "feedback_scores",
-  "span_feedback_scores",
-  "comments",
-  "guardrails_validations",
-  "total_estimated_cost",
-  "span_count",
-  "llm_span_count",
-  "has_tool_spans",
-  "duration",
-  "ttft",
-  "thread_id",
-  "visibility_mode",
-  "providers",
-  "experiment",
-  "source",
-  "environment",
-];
-
-const SPAN_EXISTENCE_EXCLUDE_FIELDS = [
-  "name",
-  "type",
-  "start_time",
-  "end_time",
-  "input",
-  "output",
-  "metadata",
-  "model",
-  "provider",
-  "tags",
-  "usage",
-  "error_info",
-  "created_at",
-  "created_by",
-  "last_updated_by",
-  "feedback_scores",
-  "comments",
-  "total_estimated_cost",
-  "total_estimated_cost_version",
-  "duration",
-  "ttft",
-  "source",
-  "environment",
-];
-
 const buildSharedDynamicChips = ({
   projectId,
   type,
@@ -1267,26 +1211,23 @@ export const TracesSpansTab: React.FC<TracesSpansTabProps> = ({
       },
     );
 
-  const { data: existenceData } = useTracesOrSpansList(
-    {
-      projectId,
-      type: type as TRACE_DATA_TYPE,
-      page: 1,
-      size: 1,
-      stripAttachments: true,
-      fromTime: intervalStart,
-      toTime: intervalEnd,
-      exclude:
-        type === TRACE_DATA_TYPE.traces
-          ? TRACE_EXISTENCE_EXCLUDE_FIELDS
-          : SPAN_EXISTENCE_EXCLUDE_FIELDS,
-      logsSource: LOGS_SOURCE.sdk,
-    },
-    {
-      enabled: isTableDataEnabled,
-    },
-  );
-  const hasProjectData = (existenceData?.total ?? 0) > 0;
+  const { data: existenceData, isPending: isExistencePending } =
+    useProjectLogsExistence(
+      {
+        projectId,
+        fromTime: intervalStart,
+        toTime: intervalEnd,
+        logsSource: LOGS_SOURCE.sdk,
+      },
+      {
+        enabled: isTableDataEnabled,
+      },
+    );
+  const hasProjectData =
+    type === TRACE_DATA_TYPE.traces
+      ? Boolean(existenceData?.has_traces)
+      : Boolean(existenceData?.has_spans);
+  const isExistenceLoading = isTableDataEnabled && isExistencePending;
 
   const isTableLoading =
     isPending || isFeedbackScoresPending || isSpanFeedbackScoresPending;
@@ -1304,7 +1245,11 @@ export const TracesSpansTab: React.FC<TracesSpansTabProps> = ({
   );
 
   const showEmptyState =
-    !isTableLoading && !hasProjectData && rows.length === 0 && page === 1;
+    !isTableLoading &&
+    !isExistenceLoading &&
+    !hasProjectData &&
+    rows.length === 0 &&
+    page === 1;
 
   // Extract metadata paths directly from loaded traces/spans data
   const metadataPaths = useMemo(() => {
