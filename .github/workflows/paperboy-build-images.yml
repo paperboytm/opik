@@ -1,0 +1,93 @@
+name: Paperboy build Opik images
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Source ref to build. Defaults to the dispatch ref."
+        required: false
+        type: string
+      tag:
+        description: "Image tag. Defaults to <version>-paperboy-<short-sha>."
+        required: false
+        type: string
+
+concurrency:
+  group: paperboy-build-opik-images-${{ inputs.ref || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  GAR_LOCATION: us-central1
+  GCP_PROJECT_ID: gen-lang-client-0436525842
+  GAR_REPOSITORY: paperboy
+
+jobs:
+  build:
+    name: Submit Paperboy image build
+    runs-on: ubuntu-latest
+    environment: google-cloud-prod
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      registry: ${{ steps.version.outputs.registry }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Resolve image tag
+        id: version
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+
+          registry="${GAR_LOCATION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}"
+          if [[ -n "${INPUT_TAG}" ]]; then
+            tag="${INPUT_TAG}"
+          else
+            base_version="$(cat version.txt)"
+            short_sha="$(git rev-parse --short=12 HEAD)"
+            tag="${base_version}-paperboy-${short_sha}"
+          fi
+
+          echo "registry=${registry}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "Submitting Cloud Build for ${registry}/<image>:${tag}"
+
+      - name: Submit Cloud Build
+        run: |
+          set -euo pipefail
+
+          gcloud builds submit \
+            --project="${GCP_PROJECT_ID}" \
+            --config=cloudbuild.paperboy-images.yaml \
+            --substitutions="_REGISTRY=${{ steps.version.outputs.registry }},_TAG=${{ steps.version.outputs.tag }}" \
+            --ignore-file=.gcloudignore.paperboy-images \
+            .
+
+      - name: Output image refs
+        run: |
+          {
+            echo "### Paperboy Opik images"
+            echo
+            echo "**Tag:** \`${{ steps.version.outputs.tag }}\`"
+            echo
+            echo '```'
+            echo "${{ steps.version.outputs.registry }}/opik-backend:${{ steps.version.outputs.tag }}"
+            echo "${{ steps.version.outputs.registry }}/opik-python-backend:${{ steps.version.outputs.tag }}"
+            echo "${{ steps.version.outputs.registry }}/opik-sandbox-executor-python:${{ steps.version.outputs.tag }}"
+            echo "${{ steps.version.outputs.registry }}/opik-frontend:${{ steps.version.outputs.tag }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
