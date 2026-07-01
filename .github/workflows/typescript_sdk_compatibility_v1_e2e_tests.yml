@@ -24,6 +24,8 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
+  COMPOSE_IMAGE_REGISTRY: ghcr.io/comet-ml/opik
+  DOCKER_REGISTRY: ghcr.io/${{ github.repository }}
   OPIK_ENABLE_LITELLM_MODELS_MONITORING: False
   OPIK_SENTRY_ENABLE: False
   OPIK_URL_OVERRIDE: http://localhost:8080
@@ -75,10 +77,10 @@ jobs:
         env:
           TAG: ${{ needs.build-opik.outputs.image_tag }}
         run: |
-          docker pull "ghcr.io/comet-ml/opik/opik-backend:$TAG"
-          docker pull "ghcr.io/comet-ml/opik/opik-python-backend:$TAG"
-          docker tag "ghcr.io/comet-ml/opik/opik-backend:$TAG" ghcr.io/comet-ml/opik/opik-backend:latest
-          docker tag "ghcr.io/comet-ml/opik/opik-python-backend:$TAG" ghcr.io/comet-ml/opik/opik-python-backend:latest
+          docker pull "${{ env.DOCKER_REGISTRY }}/opik-backend:$TAG"
+          docker pull "${{ env.DOCKER_REGISTRY }}/opik-python-backend:$TAG"
+          docker tag "${{ env.DOCKER_REGISTRY }}/opik-backend:$TAG" "${{ env.COMPOSE_IMAGE_REGISTRY }}/opik-backend:latest"
+          docker tag "${{ env.DOCKER_REGISTRY }}/opik-python-backend:$TAG" "${{ env.COMPOSE_IMAGE_REGISTRY }}/opik-python-backend:latest"
 
       - name: Set up Node.js ${{matrix.node_version}}
         uses: actions/setup-node@v4.2.0
