@@ -16636,6 +16636,7 @@ components:
           - experiment
           - playground
           - optimization
+          - evaluator
         environment:
           maxLength: 150
           minLength: 0
@@ -16770,6 +16771,7 @@ components:
           - experiment
           - playground
           - optimization
+          - evaluator
         environment:
           maxLength: 150
           minLength: 0
@@ -16969,6 +16971,7 @@ components:
           - experiment
           - playground
           - optimization
+          - evaluator
         environment:
           maxLength: 150
           minLength: 0
@@ -17022,6 +17025,7 @@ components:
           - experiment
           - playground
           - optimization
+          - evaluator
         environment:
           maxLength: 150
           minLength: 0
@@ -20927,6 +20931,7 @@ components:
       - guardrailsEnabled
       - ollamaProviderEnabled
       - ollieEnabled
+      - onlineScoringTracingEnabled
       - openaiProviderEnabled
       - openrouterProviderEnabled
       - opikAIEnabled
@@ -20990,6 +20995,8 @@ components:
         agenticToolsEnabled:
           type: boolean
         agentInsightsEnabled:
+          type: boolean
+        onlineScoringTracingEnabled:
           type: boolean
         v2WorkspaceAllowlistIds:
           uniqueItems: true
@@ -21136,6 +21143,7 @@ components:
           - experiment
           - playground
           - optimization
+          - evaluator
         environment:
           maxLength: 150
           minLength: 0
@@ -21229,6 +21237,7 @@ components:
           - experiment
           - playground
           - optimization
+          - evaluator
         environment:
           maxLength: 150
           minLength: 0
@@ -21438,6 +21447,7 @@ components:
           - experiment
           - playground
           - optimization
+          - evaluator
         environment:
           maxLength: 150
           minLength: 0
@@ -21711,6 +21721,7 @@ components:
           - experiment
           - playground
           - optimization
+          - evaluator
         environment:
           maxLength: 150
           minLength: 0
@@ -21835,6 +21846,7 @@ components:
           - experiment
           - playground
           - optimization
+          - evaluator
         environment:
           maxLength: 150
           minLength: 0
@@ -22099,6 +22111,7 @@ components:
           - experiment
           - playground
           - optimization
+          - evaluator
         environment:
           maxLength: 150
           minLength: 0
