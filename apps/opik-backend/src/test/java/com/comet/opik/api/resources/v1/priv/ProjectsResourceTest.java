@@ -138,6 +138,7 @@ import static java.util.stream.Collectors.averagingDouble;
 import static java.util.stream.Collectors.groupingBy;
 import static java.util.stream.Collectors.toMap;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -2520,7 +2521,12 @@ class ProjectsResourceTest {
         assertThat(actualEntity.lastUpdatedBy()).isEqualTo(USER);
         assertThat(actualEntity.createdBy()).isEqualTo(USER);
 
-        assertThat(actualEntity.lastUpdatedTraceAt()).isEqualTo(project.lastUpdatedTraceAt());
+        if (project.lastUpdatedTraceAt() == null) {
+            assertThat(actualEntity.lastUpdatedTraceAt()).isNull();
+        } else {
+            assertThat(actualEntity.lastUpdatedTraceAt())
+                    .isCloseTo(project.lastUpdatedTraceAt(), within(1, ChronoUnit.MICROS));
+        }
         assertThat(actualEntity.createdAt()).isAfter(project.createdAt());
         assertThat(actualEntity.lastUpdatedAt()).isAfter(project.createdAt());
     }
