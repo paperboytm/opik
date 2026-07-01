@@ -104,6 +104,12 @@ public class OnlineScoringTraceThreadUserDefinedMetricPythonScorer
 
         return Flux.fromIterable(message.threadIds())
                 .flatMap(threadId -> processThreadScores(message, threadId))
+                // Flux.flatMap is onErrorContinue-aware: without this, BaseRedisSubscriber's enclosing
+                // onErrorContinue reaches into this flatMap, drops the failing element and records the error as
+                // an "unexpected" error, bypassing processMessage's per-message onErrorResume. onErrorStop keeps
+                // conventional error semantics so scorer failures are classified as processing_errors (and follow
+                // the normal retryable/non-retryable path), matching the Mono-based trace/span scorers.
+                .onErrorStop()
                 .then()
                 .contextWrite(context -> context.put(RequestContext.WORKSPACE_ID, message.workspaceId())
                         .put(RequestContext.USER_NAME, message.userName())
