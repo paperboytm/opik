@@ -832,6 +832,10 @@ public class SpanDAO {
                 <if(filters)> AND <filters> <endif>
                 <if(search_text)> AND <search_text> <endif>
             ), <endif>comments_final AS (
+              <if(exclude_comments)>
+              SELECT toUUID('00000000-0000-0000-0000-000000000000') AS entity_id, [] AS comments
+              WHERE false
+              <else>
               SELECT
                    entity_id,
                    groupArray(tuple(
@@ -867,6 +871,7 @@ public class SpanDAO {
                 LIMIT 1 BY id
               )
               GROUP BY workspace_id, project_id, entity_id
+              <endif>
             )<if(!exclude_feedback_scores)>, feedback_scores_deduped AS (
                 SELECT workspace_id,
                        project_id,
@@ -1064,7 +1069,7 @@ public class SpanDAO {
                 <endif>
                 <if(!exclude_comments)>, c.comments AS comments <endif>
             FROM page_wide s
-            LEFT JOIN comments_final c ON s.id = c.entity_id
+            <if(!exclude_comments)>LEFT JOIN comments_final c ON s.id = c.entity_id<endif>
             <if(!exclude_feedback_scores)>LEFT JOIN feedback_scores_agg fsa ON fsa.entity_id = s.id<endif>
             <if(stream)>
             ORDER BY (workspace_id, project_id, id) DESC, last_updated_at DESC
