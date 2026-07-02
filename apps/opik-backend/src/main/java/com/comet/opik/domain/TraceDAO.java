@@ -903,10 +903,14 @@ class TraceDAOImpl implements TraceDAO {
                     WHERE entity_type = 'trace'
                       AND workspace_id = :workspace_id
                       AND project_id = :project_id
+                      <if(use_page_scoped_feedback_scores)>
+                      AND entity_id IN (SELECT id FROM page_ids)
+                      <else>
                       <if(trace_id_prefilter)> AND entity_id IN (SELECT id FROM trace_id_prefilter)
                       <else>
                       <if(uuid_from_time)> AND entity_id >= :uuid_from_time <endif>
                       <if(uuid_to_time)> AND entity_id \\<= :uuid_to_time <endif>
+                      <endif>
                       <endif>
                     UNION ALL
                     SELECT workspace_id,
@@ -928,10 +932,14 @@ class TraceDAOImpl implements TraceDAO {
                       AND workspace_id = :workspace_id
                       AND project_id = :project_id
                       <if(annotation_queue_id)>AND source_queue_id = :annotation_queue_id<endif>
+                      <if(use_page_scoped_feedback_scores)>
+                      AND entity_id IN (SELECT id FROM page_ids)
+                      <else>
                       <if(trace_id_prefilter)> AND entity_id IN (SELECT id FROM trace_id_prefilter)
                       <else>
                       <if(uuid_from_time)> AND entity_id >= :uuid_from_time <endif>
                       <if(uuid_to_time)> AND entity_id \\<= :uuid_to_time <endif>
+                      <endif>
                       <endif>
                 )
                 ORDER BY last_updated_at DESC
@@ -987,7 +995,7 @@ class TraceDAOImpl implements TraceDAO {
                     )) AS feedback_scores_list
                 FROM feedback_scores_final
                 GROUP BY workspace_id, project_id, entity_id
-            ),<endif> guardrails_agg AS (
+            ),<endif> <if(include_guardrails_agg)>guardrails_agg AS (
                 SELECT
                     entity_id,
                     groupArray(tuple(
@@ -1005,24 +1013,32 @@ class TraceDAOImpl implements TraceDAO {
                     WHERE entity_type = 'trace'
                     AND workspace_id = :workspace_id
                     AND project_id = :project_id
+                    <if(use_page_scoped_guardrails_agg)>
+                    AND entity_id IN (SELECT id FROM page_ids)
+                    <else>
                     <if(trace_id_prefilter)> AND entity_id IN (SELECT id FROM trace_id_prefilter)
                     <else>
                     <if(uuid_from_time)> AND entity_id >= :uuid_from_time <endif>
                     <if(uuid_to_time)> AND entity_id \\<= :uuid_to_time <endif>
                     <endif>
+                    <endif>
                     ORDER BY (workspace_id, project_id, entity_type, entity_id, id) DESC, last_updated_at DESC
                     LIMIT 1 BY entity_id, id
                 )
                 GROUP BY workspace_id, project_id, entity_type, entity_id
-            ), <if(!exclude_feedback_scores)>target_spans AS (
+            ),<endif> <if(!exclude_feedback_scores)>target_spans AS (
                 SELECT DISTINCT id, trace_id
                 FROM spans
                 WHERE workspace_id = :workspace_id
                 AND project_id = :project_id
+                <if(use_page_scoped_feedback_scores)>
+                AND trace_id IN (SELECT id FROM page_ids)
+                <else>
                 <if(trace_id_prefilter)>AND trace_id IN (SELECT id FROM trace_id_prefilter)
                 <else>
                 <if(uuid_from_time)>AND trace_id >= :uuid_from_time<endif>
                 <if(uuid_to_time)>AND trace_id \\<= :uuid_to_time<endif>
+                <endif>
                 <endif>
             ),
             span_feedback_scores_deduped AS (
@@ -1155,7 +1171,7 @@ class TraceDAOImpl implements TraceDAO {
                     )) AS span_feedback_scores_list
                 FROM span_feedback_scores_final
                 GROUP BY workspace_id, project_id, trace_id
-            ),<endif> spans_agg AS (
+            ),<endif> <if(include_spans_agg)>spans_agg AS (
                 SELECT
                     trace_id,
                     sumMap(usage) as usage,
@@ -1167,13 +1183,17 @@ class TraceDAOImpl implements TraceDAO {
                 FROM spans FINAL
                 WHERE workspace_id = :workspace_id
                 AND project_id = :project_id
+                <if(use_page_scoped_spans_agg)>
+                AND trace_id IN (SELECT id FROM page_ids)
+                <else>
                 <if(trace_id_prefilter)>AND trace_id IN (SELECT id FROM trace_id_prefilter)
                 <else>
                 <if(uuid_from_time)>AND trace_id >= :uuid_from_time<endif>
                 <if(uuid_to_time)>AND trace_id \\<= :uuid_to_time<endif>
                 <endif>
+                <endif>
                 GROUP BY workspace_id, project_id, trace_id
-            ), comments_agg AS (
+            ),<endif> <if(include_comments_agg)>comments_agg AS (
                 SELECT
                     entity_id,
                     groupArray(tuple(id, text, created_at, last_updated_at, created_by, last_updated_by, source_queue_id)) AS comments_array
@@ -1193,16 +1213,20 @@ class TraceDAOImpl implements TraceDAO {
                     WHERE workspace_id = :workspace_id
                     AND project_id = :project_id
                     <if(annotation_queue_id)>AND source_queue_id = :annotation_queue_id<endif>
+                    <if(use_page_scoped_comments_agg)>
+                    AND entity_id IN (SELECT id FROM page_ids)
+                    <else>
                     <if(trace_id_prefilter)> AND entity_id IN (SELECT id FROM trace_id_prefilter)
                     <else>
                     <if(uuid_from_time)> AND entity_id >= :uuid_from_time <endif>
                     <if(uuid_to_time)> AND entity_id \\<= :uuid_to_time <endif>
                     <endif>
+                    <endif>
                     ORDER BY (workspace_id, project_id, entity_id, id) DESC, last_updated_at DESC
                     LIMIT 1 BY id
                 )
                 GROUP BY workspace_id, project_id, entity_id
-            ), trace_annotation_queue_ids AS (
+            ),<endif> trace_annotation_queue_ids AS (
                  SELECT trace_id,
                         groupArray(id) AS annotation_queue_ids
                  FROM (
@@ -1232,10 +1256,14 @@ class TraceDAOImpl implements TraceDAO {
                     SELECT DISTINCT experiment_id, trace_id, dataset_item_id
                     FROM experiment_items
                     WHERE workspace_id = :workspace_id
+                    <if(use_page_scoped_experiments_agg)>
+                    AND trace_id IN (SELECT id FROM page_ids)
+                    <else>
                     <if(trace_id_prefilter)> AND trace_id IN (SELECT id FROM trace_id_prefilter)
                     <else>
                     <if(uuid_from_time)> AND trace_id >= :uuid_from_time <endif>
                     <if(uuid_to_time)> AND trace_id \\<= :uuid_to_time <endif>
+                    <endif>
                     <endif>
                 ) ei
                 LEFT JOIN (
@@ -1245,10 +1273,14 @@ class TraceDAOImpl implements TraceDAO {
                     AND id IN (
                         SELECT dataset_item_id FROM experiment_items
                         WHERE workspace_id = :workspace_id
+                        <if(use_page_scoped_experiments_agg)>
+                        AND trace_id IN (SELECT id FROM page_ids)
+                        <else>
                         <if(trace_id_prefilter)> AND trace_id IN (SELECT id FROM trace_id_prefilter)
                         <else>
                         <if(uuid_from_time)> AND trace_id >= :uuid_from_time <endif>
                         <if(uuid_to_time)> AND trace_id \\<= :uuid_to_time <endif>
+                        <endif>
                         <endif>
                     )
                 ) div ON div.id = ei.dataset_item_id
@@ -1401,23 +1433,27 @@ class TraceDAOImpl implements TraceDAO {
                   , fsagg.feedback_scores as feedback_scores
                   , sfsagg.span_feedback_scores_list as span_feedback_scores_list
                   <endif>
+                  <if(include_spans_agg)>
                   <if(!exclude_usage)>, s.usage as usage<endif>
                   <if(!exclude_total_estimated_cost)>, s.total_estimated_cost as total_estimated_cost<endif>
+                  <endif>
                   <if(!exclude_comments)>, c.comments_array as comments <endif>
                   <if(!exclude_guardrails_validations)>, gagg.guardrails_list as guardrails_validations<endif>
+                  <if(include_spans_agg)>
                   <if(!exclude_span_count)>, s.span_count AS span_count<endif>
                   <if(!exclude_llm_span_count)>, s.llm_span_count AS llm_span_count<endif>
                   <if(!exclude_has_tool_spans)>, s.has_tool_spans AS has_tool_spans<endif>
-                  , s.providers AS providers
+                  <if(!exclude_providers)>, s.providers AS providers<endif>
+                  <endif>
                   <if(!exclude_experiment)>, eaag.experiment_id, eaag.experiment_name, eaag.experiment_dataset_id, eaag.experiment_dataset_item_id<endif>
              FROM page_wide t
              <if(!exclude_feedback_scores)>
              LEFT JOIN feedback_scores_agg fsagg ON fsagg.entity_id = t.id
              LEFT JOIN span_feedback_scores_agg sfsagg ON sfsagg.trace_id = t.id
              <endif>
-             LEFT JOIN spans_agg s ON t.id = s.trace_id
-             LEFT JOIN comments_agg c ON t.id = c.entity_id
-             LEFT JOIN guardrails_agg gagg ON gagg.entity_id = t.id
+             <if(include_spans_agg)>LEFT JOIN spans_agg s ON t.id = s.trace_id<endif>
+             <if(include_comments_agg)>LEFT JOIN comments_agg c ON t.id = c.entity_id<endif>
+             <if(include_guardrails_agg)>LEFT JOIN guardrails_agg gagg ON gagg.entity_id = t.id<endif>
              <if(sort_has_experiment || !exclude_experiment)>LEFT JOIN experiments_agg eaag ON eaag.trace_id = t.id<endif>
              ORDER BY <if(sort_fields)> <sort_fields>, <endif>(workspace_id, project_id, id) DESC, last_updated_at DESC
             SETTINGS log_comment = '<log_comment>'
@@ -1454,7 +1490,7 @@ class TraceDAOImpl implements TraceDAO {
             """;
 
     private static final String COUNT_BY_PROJECT_ID = """
-            WITH feedback_scores_deduped AS (
+            WITH <if(feedback_scores_filters || feedback_scores_empty_filters)>feedback_scores_deduped AS (
                 SELECT workspace_id,
                        project_id,
                        entity_id,
@@ -1505,7 +1541,7 @@ class TraceDAOImpl implements TraceDAO {
                     max(last_updated_at) AS last_updated_at
                 FROM feedback_scores_deduped
                 GROUP BY workspace_id, project_id, entity_id, name
-            ), guardrails_agg AS (
+            ),<endif> <if(guardrails_filters)>guardrails_agg AS (
                 SELECT
                     entity_id,
                     if(has(groupArray(result), 'failed'), 'failed', 'passed') as guardrails_result
@@ -1522,7 +1558,7 @@ class TraceDAOImpl implements TraceDAO {
                     LIMIT 1 BY entity_id, id
                 )
                 GROUP BY workspace_id, project_id, entity_type, entity_id
-            ), trace_annotation_queue_ids AS (
+            ),<endif> trace_annotation_queue_ids AS (
                  SELECT trace_id,
                         groupArray(id) AS annotation_queue_ids
                  FROM (
@@ -1536,14 +1572,14 @@ class TraceDAOImpl implements TraceDAO {
                       <if(uuid_to_time)> AND aqi.item_id \\<= :uuid_to_time <endif>
                  ) AS annotation_queue_ids_with_trace_id
                  GROUP BY trace_id
-            ), target_spans AS (
+            )<if(span_feedback_scores_filters || span_feedback_scores_empty_filters || trace_aggregation_filters)>, target_spans AS (
                 SELECT DISTINCT id, trace_id
                 FROM spans
                 WHERE workspace_id = :workspace_id
                 AND project_id = :project_id
                 <if(uuid_from_time)>AND trace_id >= :uuid_from_time<endif>
                 <if(uuid_to_time)>AND trace_id \\<= :uuid_to_time<endif>
-            ),
+            )<if(span_feedback_scores_filters || span_feedback_scores_empty_filters)>,
             span_feedback_scores_deduped AS (
                 SELECT workspace_id,
                        project_id,
@@ -1664,7 +1700,7 @@ class TraceDAOImpl implements TraceDAO {
                     )) AS span_feedback_scores_list
                 FROM span_feedback_scores_final
                 GROUP BY workspace_id, project_id, trace_id
-            )
+            )<endif><endif>
             <if(feedback_scores_empty_filters)>
              , fsc AS (SELECT entity_id, COUNT(entity_id) AS feedback_scores_count
                  FROM feedback_scores_final
@@ -1694,7 +1730,9 @@ class TraceDAOImpl implements TraceDAO {
                         id,
                         duration
                     FROM traces
-                        LEFT JOIN guardrails_agg gagg ON gagg.entity_id = traces.id
+                    <if(guardrails_filters)>
+                    LEFT JOIN guardrails_agg gagg ON gagg.entity_id = traces.id
+                    <endif>
                     <if(feedback_scores_empty_filters)>
                     LEFT JOIN fsc ON fsc.entity_id = traces.id
                     <endif>
@@ -3396,7 +3434,8 @@ class TraceDAOImpl implements TraceDAO {
 
     private Trace mapRowToTrace(Row row, RowMetadata rowMetadata, Set<Trace.TraceField> exclude) {
         @SuppressWarnings("unchecked")
-        List<String> providers = (List<String>) row.get(Trace.TraceField.PROVIDERS.getValue(), List.class);
+        List<String> providers = (List<String>) getValue(exclude, Trace.TraceField.PROVIDERS, row,
+                Trace.TraceField.PROVIDERS.getValue(), List.class);
 
         JsonNode metadata = getMetadataWithProviders(row, exclude, providers);
 
@@ -3674,6 +3713,8 @@ class TraceDAOImpl implements TraceDAO {
                         finalTemplate.add("sort_fields", sortFields);
                     });
 
+            bindOptionalAggregationVariables(template);
+
             var hasDynamicKeys = sortingQueryBuilder.hasDynamicKeys(traceSearchCriteria.sortingFields());
 
             template = ImageUtils.addTruncateToTemplate(template, traceSearchCriteria.truncate());
@@ -3743,8 +3784,83 @@ class TraceDAOImpl implements TraceDAO {
                                 fields.contains(Trace.TraceField.HAS_TOOL_SPANS.getValue()));
                         template.add("exclude_experiment",
                                 fields.contains(Trace.TraceField.EXPERIMENT.getValue()));
+                        template.add("exclude_providers",
+                                fields.contains(Trace.TraceField.PROVIDERS.getValue()));
                     }
                 });
+    }
+
+    private void bindOptionalAggregationVariables(ST template) {
+        if (!isExcluded(template, "exclude_feedback_scores") && canScopeFeedbackScoresToPage(template)) {
+            template.add("use_page_scoped_feedback_scores", true);
+        }
+
+        if (needsSpansAggregation(template)) {
+            template.add("include_spans_agg", true);
+
+            if (canScopeSpansAggregationToPage(template)) {
+                template.add("use_page_scoped_spans_agg", true);
+            }
+        }
+        if (needsCommentsAggregation(template)) {
+            template.add("include_comments_agg", true);
+            template.add("use_page_scoped_comments_agg", true);
+        }
+        if (needsGuardrailsAggregation(template)) {
+            template.add("include_guardrails_agg", true);
+
+            if (canScopeGuardrailsAggregationToPage(template)) {
+                template.add("use_page_scoped_guardrails_agg", true);
+            }
+        }
+
+        if (canScopeExperimentsAggregationToPage(template)) {
+            template.add("use_page_scoped_experiments_agg", true);
+        }
+    }
+
+    private boolean needsSpansAggregation(ST template) {
+        return template.getAttribute("sort_has_span_statistics") != null
+                || template.getAttribute("trace_aggregation_filters") != null
+                || !isExcluded(template, "exclude_usage")
+                || !isExcluded(template, "exclude_total_estimated_cost")
+                || !isExcluded(template, "exclude_span_count")
+                || !isExcluded(template, "exclude_llm_span_count")
+                || !isExcluded(template, "exclude_has_tool_spans")
+                || !isExcluded(template, "exclude_providers");
+    }
+
+    private boolean canScopeSpansAggregationToPage(ST template) {
+        return template.getAttribute("sort_has_span_statistics") == null
+                && template.getAttribute("trace_aggregation_filters") == null;
+    }
+
+    private boolean canScopeFeedbackScoresToPage(ST template) {
+        return template.getAttribute("sort_has_feedback_scores") == null
+                && !hasFeedbackScoreFilters(template);
+    }
+
+    private boolean needsCommentsAggregation(ST template) {
+        return !isExcluded(template, "exclude_comments");
+    }
+
+    private boolean needsGuardrailsAggregation(ST template) {
+        return template.getAttribute("guardrails_filters") != null
+                || !isExcluded(template, "exclude_guardrails_validations");
+    }
+
+    private boolean canScopeGuardrailsAggregationToPage(ST template) {
+        return template.getAttribute("guardrails_filters") == null;
+    }
+
+    private boolean canScopeExperimentsAggregationToPage(ST template) {
+        return template.getAttribute("sort_has_experiment") == null
+                && template.getAttribute("experiment_filters") == null
+                && !isExcluded(template, "exclude_experiment");
+    }
+
+    private boolean isExcluded(ST template, String attribute) {
+        return Boolean.TRUE.equals(template.getAttribute(attribute));
     }
 
     private boolean isFeedBackScoresField(String field) {
@@ -4423,6 +4539,7 @@ class TraceDAOImpl implements TraceDAO {
             }
 
             addSortNeedsWideFlag(template, criteria.sortingFields());
+            bindOptionalAggregationVariables(template);
 
             template = ImageUtils.addTruncateToTemplate(template, criteria.truncate());
 
