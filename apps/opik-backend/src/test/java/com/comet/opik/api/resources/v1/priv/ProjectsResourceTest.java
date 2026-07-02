@@ -1403,11 +1403,11 @@ class ProjectsResourceTest {
                     .isEqualTo(List.of(id3, id2, id));
 
             assertThat(actualEntity.content().get(0).lastUpdatedTraceAt())
-                    .isEqualTo(expectedProject3.lastUpdatedTraceAt());
+                    .isCloseTo(expectedProject3.lastUpdatedTraceAt(), within(1, ChronoUnit.MICROS));
             assertThat(actualEntity.content().get(1).lastUpdatedTraceAt())
-                    .isEqualTo(expectedProject2.lastUpdatedTraceAt());
+                    .isCloseTo(expectedProject2.lastUpdatedTraceAt(), within(1, ChronoUnit.MICROS));
             assertThat(actualEntity.content().get(2).lastUpdatedTraceAt())
-                    .isEqualTo(expectedProject.lastUpdatedTraceAt());
+                    .isCloseTo(expectedProject.lastUpdatedTraceAt(), within(1, ChronoUnit.MICROS));
 
             assertAllProjectsHavePersistedLastTraceAt(workspaceId, List.of(expectedProject, expectedProject2,
                     expectedProject3));
@@ -1716,11 +1716,11 @@ class ProjectsResourceTest {
             assertThat(actualEntity.content().stream().map(Project::id).toList())
                     .isEqualTo(List.of(id3, id2, id1));
 
-            // project3 and project2 carry explicit client timestamps, so the recorded marker matches exactly.
+            // project3 and project2 carry explicit client timestamps; storage/API conversion can drift by 1us.
             assertThat(actualEntity.content().get(0).lastUpdatedTraceAt())
-                    .isEqualTo(expectedProject3.lastUpdatedTraceAt());
+                    .isCloseTo(expectedProject3.lastUpdatedTraceAt(), within(1, ChronoUnit.MICROS));
             assertThat(actualEntity.content().get(1).lastUpdatedTraceAt())
-                    .isEqualTo(expectedProject2.lastUpdatedTraceAt());
+                    .isCloseTo(expectedProject2.lastUpdatedTraceAt(), within(1, ChronoUnit.MICROS));
             // project1 left lastUpdatedAt null, so its marker is the event publish time: at or after the stored
             // value and not in the future.
             assertThat(actualEntity.content().get(2).lastUpdatedTraceAt())
