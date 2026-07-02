@@ -91,6 +91,9 @@ public interface TraceService {
 
     Mono<TracePage> find(int page, int size, TraceSearchCriteria criteria);
 
+    Mono<List<String>> getMetadataPaths(UUID projectId, UUID uuidFromTime, UUID uuidToTime, String source,
+            String visibilityMode, int limit);
+
     Mono<Boolean> hasProjectTraces(UUID projectId, UUID uuidFromTime, UUID uuidToTime, String source,
             String visibilityMode);
 
@@ -511,6 +514,17 @@ class TraceServiceImpl implements TraceService {
                             return Mono.just(tracePage);
                         }))
                 .switchIfEmpty(Mono.just(TracePage.empty(page, traceSortingFactory.getSortableFields())));
+    }
+
+    @Override
+    @WithSpan
+    public Mono<List<String>> getMetadataPaths(
+            @NonNull UUID projectId, UUID uuidFromTime, UUID uuidToTime, String source, String visibilityMode,
+            int limit) {
+        return projectService.resolveProjectIdAndVerifyVisibility(projectId, null)
+                .flatMap(resolvedProjectId -> template.nonTransaction(connection -> dao.getMetadataPaths(
+                        resolvedProjectId, uuidFromTime, uuidToTime, source, visibilityMode, limit, connection)))
+                .switchIfEmpty(Mono.just(List.of()));
     }
 
     @Override

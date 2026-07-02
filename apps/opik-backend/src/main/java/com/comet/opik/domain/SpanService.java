@@ -95,6 +95,13 @@ public class SpanService {
     }
 
     @WithSpan
+    public Mono<List<String>> getMetadataPaths(@NonNull SpanSearchCriteria searchCriteria, String source, int limit) {
+        return findProjectAndVerifyVisibility(searchCriteria)
+                .flatMap(resolvedCriteria -> spanDAO.getMetadataPaths(resolvedCriteria, source, limit))
+                .switchIfEmpty(Mono.just(List.of()));
+    }
+
+    @WithSpan
     public Mono<Boolean> hasProjectSpans(@NonNull UUID projectId, UUID uuidFromTime, UUID uuidToTime, String source) {
         return projectService.resolveProjectIdAndVerifyVisibility(projectId, null)
                 .flatMap(resolvedProjectId -> spanDAO.hasProjectSpans(resolvedProjectId, uuidFromTime, uuidToTime,

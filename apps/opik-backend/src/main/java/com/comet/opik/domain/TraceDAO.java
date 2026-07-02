@@ -107,6 +107,9 @@ public interface TraceDAO {
 
     Mono<TracePage> find(int size, int page, TraceSearchCriteria traceSearchCriteria, Connection connection);
 
+    Mono<List<String>> getMetadataPaths(UUID projectId, UUID uuidFromTime, UUID uuidToTime, String source,
+            String visibilityMode, int limit, Connection connection);
+
     Mono<Boolean> hasProjectTraces(UUID projectId, UUID uuidFromTime, UUID uuidToTime, String source,
             String visibilityMode, Connection connection);
 
@@ -1456,6 +1459,39 @@ class TraceDAOImpl implements TraceDAO {
              <if(include_guardrails_agg)>LEFT JOIN guardrails_agg gagg ON gagg.entity_id = t.id<endif>
              <if(sort_has_experiment || !exclude_experiment)>LEFT JOIN experiments_agg eaag ON eaag.trace_id = t.id<endif>
              ORDER BY <if(sort_fields)> <sort_fields>, <endif>(workspace_id, project_id, id) DESC, last_updated_at DESC
+            SETTINGS log_comment = '<log_comment>'
+            ;
+            """;
+
+    private static final String METADATA_PATHS_BY_PROJECT_ID = """
+            WITH latest AS (
+                SELECT
+                    id,
+                    argMax(metadata, last_updated_at) AS metadata
+                FROM traces
+                WHERE workspace_id = :workspace_id
+                AND project_id = :project_id
+                <if(uuid_from_time)> AND id >= :uuid_from_time
+                    AND toMonday(id_at) >= toMonday(UUIDv7ToDateTime(toUUID(:uuid_from_time), 'UTC')) <endif>
+                <if(uuid_to_time)> AND id \\<= :uuid_to_time
+                    AND toMonday(id_at) \\<= toMonday(UUIDv7ToDateTime(toUUID(:uuid_to_time), 'UTC')) <endif>
+                <if(source)> AND (source = :source <if(legacy_source)>OR source = :legacy_source<endif>) <endif>
+                <if(visibility_mode)> AND visibility_mode = :visibility_mode <endif>
+                AND metadata_length > 0
+                GROUP BY id
+            )
+            SELECT path
+            FROM (
+                SELECT arrayJoin(JSONAllPaths(CAST(metadata, 'JSON'))) AS path
+                FROM latest
+                WHERE length(metadata) > 0
+                AND isValidJSON(metadata)
+                AND JSONType(metadata) = 'Object'
+            )
+            WHERE path != ''
+            GROUP BY path
+            ORDER BY path ASC
+            LIMIT :limit
             SETTINGS log_comment = '<log_comment>'
             ;
             """;
@@ -3598,6 +3634,56 @@ class TraceDAOImpl implements TraceDAO {
                         .collectList()
                         .map(traces -> new TracePage(page, traces.size(), total, traces,
                                 sortingFactory.getSortableFields())));
+    }
+
+    @Override
+    @WithSpan
+    public Mono<List<String>> getMetadataPaths(
+            @NonNull UUID projectId, UUID uuidFromTime, UUID uuidToTime, String source, String visibilityMode,
+            int limit,
+            @NonNull Connection connection) {
+        return makeMonoContextAware((userName, workspaceId) -> {
+            var template = getSTWithLogComment(METADATA_PATHS_BY_PROJECT_ID, "get_trace_metadata_paths", workspaceId,
+                    userName, "limit:" + limit);
+
+            Optional.ofNullable(uuidFromTime).ifPresent(value -> template.add("uuid_from_time", value));
+            Optional.ofNullable(uuidToTime).ifPresent(value -> template.add("uuid_to_time", value));
+            Optional.ofNullable(source).ifPresent(value -> {
+                template.add("source", value);
+                Source.legacyFallbackDbValue(value).ifPresent(legacySource -> template.add("legacy_source",
+                        legacySource));
+            });
+            Optional.ofNullable(visibilityMode).ifPresent(value -> template.add("visibility_mode", value));
+
+            var statement = connection.createStatement(template.render())
+                    .bind("project_id", projectId)
+                    .bind("workspace_id", workspaceId)
+                    .bind("limit", limit);
+
+            if (uuidFromTime != null) {
+                statement.bind("uuid_from_time", uuidFromTime);
+            }
+            if (uuidToTime != null) {
+                statement.bind("uuid_to_time", uuidToTime);
+            }
+            if (source != null) {
+                statement.bind("source", source);
+                var legacySource = Source.legacyFallbackDbValue(source);
+                if (legacySource.isPresent()) {
+                    statement.bind("legacy_source", legacySource.get());
+                }
+            }
+            if (visibilityMode != null) {
+                statement.bind("visibility_mode", visibilityMode);
+            }
+
+            Segment segment = startSegment("traces", "Clickhouse", "metadataPaths");
+
+            return Mono.from(statement.execute())
+                    .flatMapMany(result -> result.map((row, rowMetadata) -> row.get("path", String.class)))
+                    .collectList()
+                    .doFinally(signalType -> endSegment(segment));
+        });
     }
 
     @Override

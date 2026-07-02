@@ -14,6 +14,7 @@ import com.comet.opik.api.FeedbackScoreBatchContainer;
 import com.comet.opik.api.FeedbackScoreItem;
 import com.comet.opik.api.FeedbackScoreItem.FeedbackScoreBatchItem.FeedbackScoreBatchItemBuilder;
 import com.comet.opik.api.FeedbackScoreNames;
+import com.comet.opik.api.MetadataPathsResponse;
 import com.comet.opik.api.Project;
 import com.comet.opik.api.ReactServiceErrorResponse;
 import com.comet.opik.api.ScoreSource;
@@ -7803,6 +7804,59 @@ class TracesResourceTest {
             TraceAssertions.assertTraces(page.content(),
                     List.of(unknownSourceTrace, sdkTrace),
                     List.of(experimentTrace), USER);
+        }
+    }
+
+    @Nested
+    @DisplayName("Get trace metadata paths")
+    class GetTraceMetadataPaths {
+
+        @Test
+        @DisplayName("returns metadata paths for SDK traces including legacy unknown source")
+        void getMetadataPaths__whenSourceSdk__thenIncludesLegacyUnknownSource() {
+            var projectName = "trace-metadata-paths-" + UUID.randomUUID();
+
+            var sdkTrace = factory.manufacturePojo(Trace.class).toBuilder()
+                    .projectName(projectName)
+                    .source(Source.SDK)
+                    .metadata(JsonUtils.getJsonNodeFromString("{\"agent_name\":\"chat\"}"))
+                    .usage(null)
+                    .feedbackScores(null)
+                    .build();
+            var unknownSourceTrace = factory.manufacturePojo(Trace.class).toBuilder()
+                    .projectName(projectName)
+                    .source(null)
+                    .metadata(JsonUtils.getJsonNodeFromString("{\"runtime_user_email\":\"levi\"}"))
+                    .usage(null)
+                    .feedbackScores(null)
+                    .build();
+            var experimentTrace = factory.manufacturePojo(Trace.class).toBuilder()
+                    .projectName(projectName)
+                    .source(Source.EXPERIMENT)
+                    .metadata(JsonUtils.getJsonNodeFromString("{\"experiment_only\":\"no\"}"))
+                    .usage(null)
+                    .feedbackScores(null)
+                    .build();
+
+            traceResourceClient.createTrace(sdkTrace, API_KEY, TEST_WORKSPACE);
+            traceResourceClient.createTrace(unknownSourceTrace, API_KEY, TEST_WORKSPACE);
+            traceResourceClient.createTrace(experimentTrace, API_KEY, TEST_WORKSPACE);
+            var projectId = getProjectId(projectName, TEST_WORKSPACE, API_KEY);
+
+            try (var response = client.target("%s/v1/private/traces".formatted(baseURI))
+                    .path("metadata")
+                    .path("paths")
+                    .queryParam("project_id", projectId)
+                    .queryParam("source", Source.SDK.getValue())
+                    .request()
+                    .header(HttpHeaders.AUTHORIZATION, API_KEY)
+                    .header(WORKSPACE_HEADER, TEST_WORKSPACE)
+                    .get()) {
+
+                assertThat(response.getStatus()).isEqualTo(HttpStatus.SC_OK);
+                var body = response.readEntity(MetadataPathsResponse.class);
+                assertThat(body.paths()).containsExactly("agent_name", "runtime_user_email");
+            }
         }
     }
 

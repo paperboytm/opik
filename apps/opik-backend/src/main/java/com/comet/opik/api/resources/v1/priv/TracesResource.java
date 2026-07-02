@@ -13,6 +13,7 @@ import com.comet.opik.api.FeedbackScore;
 import com.comet.opik.api.FeedbackScoreBatchContainer;
 import com.comet.opik.api.FeedbackScoreNames;
 import com.comet.opik.api.InstantToUUIDMapper;
+import com.comet.opik.api.MetadataPathsResponse;
 import com.comet.opik.api.ProjectStats;
 import com.comet.opik.api.Trace;
 import com.comet.opik.api.Trace.TracePage;
@@ -62,6 +63,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.inject.Provider;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
@@ -122,6 +124,35 @@ public class TracesResource {
     private final @NonNull ProjectService projectService;
     private final @NonNull TraceThreadService traceThreadService;
     private final @NonNull InstantToUUIDMapper instantToUUIDMapper;
+
+    @GET
+    @Path("/metadata/paths")
+    @Operation(operationId = "getTraceMetadataPaths", summary = "Get trace metadata paths", description = "Get distinct trace metadata paths for autocomplete without loading trace rows", responses = {
+            @ApiResponse(responseCode = "200", description = "Trace metadata paths", content = @Content(schema = @Schema(implementation = MetadataPathsResponse.class)))})
+    @RateLimited(value = "getTraceMetadataPaths:{workspaceId}", shouldAffectWorkspaceLimit = false, shouldAffectUserGeneralLimit = false)
+    public Response getTraceMetadataPaths(
+            @QueryParam("project_id") @NotNull UUID projectId,
+            @QueryParam("from_time") @Schema(description = "Filter traces created from this time (ISO-8601 format).") Instant startTime,
+            @QueryParam("to_time") @Schema(description = "Filter traces created up to this time (ISO-8601 format).") Instant endTime,
+            @QueryParam("source") @Schema(description = "Filter traces by source.") String source,
+            @QueryParam("visibility_mode") @DefaultValue("default") @Schema(description = "Filter traces by visibility mode.") String visibilityMode,
+            @QueryParam("limit") @Min(1) @Max(1000) @DefaultValue("100") int limit) {
+
+        validateTimeRangeParameters(startTime, endTime);
+
+        var response = service.getMetadataPaths(
+                projectId,
+                instantToUUIDMapper.toLowerBound(startTime),
+                instantToUUIDMapper.toUpperBound(endTime),
+                StringUtils.trimToNull(source),
+                StringUtils.trimToNull(visibilityMode),
+                limit)
+                .map(MetadataPathsResponse::new)
+                .contextWrite(ctx -> setRequestContext(ctx, requestContext))
+                .block();
+
+        return Response.ok(response).build();
+    }
 
     @GET
     @Operation(operationId = "getTracesByProject", summary = "Get traces by project_name or project_id", description = "Get traces by project_name or project_id", responses = {

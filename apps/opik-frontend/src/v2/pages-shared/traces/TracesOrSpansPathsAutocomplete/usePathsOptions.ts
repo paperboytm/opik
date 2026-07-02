@@ -9,6 +9,8 @@ import useTracesOrSpansList, {
 } from "@/hooks/useTracesOrSpansList";
 import { LOGS_SOURCE } from "@/types/traces";
 import { ChipOptionsResult } from "@/shared/filter-chips/types";
+import useTraceMetadataPaths from "@/api/traces/useTraceMetadataPaths";
+import useSpanMetadataPaths from "@/api/traces/useSpanMetadataPaths";
 
 export type TRACE_AUTOCOMPLETE_ROOT_KEY = "input" | "output" | "metadata";
 
@@ -20,6 +22,8 @@ interface UsePathsOptionsArgs {
   includeIntermediateNodes?: boolean;
   datasetColumnNames?: string[];
   logsSource?: LOGS_SOURCE;
+  fromTime?: string;
+  toTime?: string;
 }
 
 export const usePathsOptions = (
@@ -33,8 +37,47 @@ export const usePathsOptions = (
     includeIntermediateNodes = false,
     datasetColumnNames,
     logsSource,
+    fromTime,
+    toTime,
   } = args;
   const hasProjectId = Boolean(projectId);
+  const useMetadataPathsEndpoint =
+    rootKeys.length === 1 &&
+    rootKeys[0] === "metadata" &&
+    excludeRoot &&
+    !includeIntermediateNodes;
+
+  const { data: traceMetadataPaths, isPending: isTraceMetadataPathsPending } =
+    useTraceMetadataPaths(
+      {
+        projectId,
+        fromTime,
+        toTime,
+        logsSource,
+      },
+      {
+        enabled:
+          hasProjectId &&
+          useMetadataPathsEndpoint &&
+          type === TRACE_DATA_TYPE.traces,
+      } as never,
+    );
+
+  const { data: spanMetadataPaths, isPending: isSpanMetadataPathsPending } =
+    useSpanMetadataPaths(
+      {
+        projectId,
+        fromTime,
+        toTime,
+        logsSource,
+      },
+      {
+        enabled:
+          hasProjectId &&
+          useMetadataPathsEndpoint &&
+          type === TRACE_DATA_TYPE.spans,
+      } as never,
+    );
 
   const { data, isPending } = useTracesOrSpansList(
     {
@@ -46,7 +89,7 @@ export const usePathsOptions = (
       stripAttachments: true,
       logsSource,
     },
-    { enabled: hasProjectId },
+    { enabled: hasProjectId && !useMetadataPathsEndpoint },
   );
 
   const { data: dataNonTruncated, isPending: isPendingNonTruncated } =
@@ -60,10 +103,15 @@ export const usePathsOptions = (
         stripAttachments: true,
         logsSource,
       },
-      { enabled: hasProjectId },
+      { enabled: hasProjectId && !useMetadataPathsEndpoint },
     );
 
   const items = useMemo(() => {
+    const metadataPathSuggestions =
+      type === TRACE_DATA_TYPE.traces
+        ? traceMetadataPaths?.paths || []
+        : spanMetadataPaths?.paths || [];
+
     const truncated = data?.content || [];
     const nonTruncated = dataNonTruncated?.content || [];
     const all = [...truncated, ...nonTruncated];
@@ -96,19 +144,32 @@ export const usePathsOptions = (
 
     return uniq([
       ...rootObjectSuggestions,
+      ...(useMetadataPathsEndpoint ? metadataPathSuggestions : []),
       ...baseSuggestions,
       ...datasetSuggestions,
     ]).sort();
   }, [
     data?.content,
     dataNonTruncated?.content,
+    traceMetadataPaths?.paths,
+    spanMetadataPaths?.paths,
     rootKeys,
     excludeRoot,
     includeIntermediateNodes,
     datasetColumnNames,
+    type,
+    useMetadataPathsEndpoint,
   ]);
 
-  const effectiveLoading = hasProjectId && (isPending || isPendingNonTruncated);
+  const metadataPathsPending =
+    type === TRACE_DATA_TYPE.traces
+      ? isTraceMetadataPathsPending
+      : isSpanMetadataPathsPending;
+  const effectiveLoading =
+    hasProjectId &&
+    (useMetadataPathsEndpoint
+      ? metadataPathsPending
+      : isPending || isPendingNonTruncated);
 
   return useMemo(
     () => ({ items, isLoading: effectiveLoading }),

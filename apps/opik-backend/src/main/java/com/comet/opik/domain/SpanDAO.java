@@ -1191,6 +1191,38 @@ public class SpanDAO {
             ;
             """;
 
+    private static final String METADATA_PATHS_BY_PROJECT_ID = """
+            WITH latest AS (
+                SELECT
+                    id,
+                    argMax(metadata, last_updated_at) AS metadata
+                FROM spans
+                WHERE workspace_id = :workspace_id
+                AND project_id = :project_id
+                <if(trace_id)> AND trace_id = :trace_id <endif>
+                <if(type)> AND type = :type <endif>
+                <if(uuid_from_time)> AND id >= :uuid_from_time <endif>
+                <if(uuid_to_time)> AND id \\<= :uuid_to_time <endif>
+                <if(source)> AND (source = :source <if(legacy_source)>OR source = :legacy_source<endif>) <endif>
+                AND metadata_length > 0
+                GROUP BY id
+            )
+            SELECT path
+            FROM (
+                SELECT arrayJoin(JSONAllPaths(CAST(metadata, 'JSON'))) AS path
+                FROM latest
+                WHERE length(metadata) > 0
+                AND isValidJSON(metadata)
+                AND JSONType(metadata) = 'Object'
+            )
+            WHERE path != ''
+            GROUP BY path
+            ORDER BY path ASC
+            LIMIT :limit
+            SETTINGS log_comment = '<log_comment>'
+            ;
+            """;
+
     private static final String DELETE_BY_IDS = """
             DELETE FROM spans
             WHERE id IN :ids
@@ -2367,6 +2399,41 @@ public class SpanDAO {
     public Mono<SpanPage> find(int page, int size, @NonNull SpanSearchCriteria spanSearchCriteria) {
         log.info("Finding span by '{}'", spanSearchCriteria);
         return countTotal(spanSearchCriteria).flatMap(total -> find(page, size, spanSearchCriteria, total));
+    }
+
+    @WithSpan
+    public Mono<List<String>> getMetadataPaths(@NonNull SpanSearchCriteria spanSearchCriteria, String source,
+            int limit) {
+        return Mono.from(connectionFactory.create())
+                .flatMap(connection -> makeMonoContextAware((userName, workspaceId) -> {
+                    var template = newFindTemplate(METADATA_PATHS_BY_PROJECT_ID, spanSearchCriteria,
+                            "get_span_metadata_paths", workspaceId, userName);
+                    Optional.ofNullable(source).ifPresent(value -> {
+                        template.add("source", value);
+                        Source.legacyFallbackDbValue(value).ifPresent(legacySource -> template.add("legacy_source",
+                                legacySource));
+                    });
+
+                    var statement = connection.createStatement(template.render())
+                            .bind("project_id", spanSearchCriteria.projectId())
+                            .bind("workspace_id", workspaceId)
+                            .bind("limit", limit);
+                    bindSearchCriteria(statement, spanSearchCriteria);
+                    if (source != null) {
+                        statement.bind("source", source);
+                        var legacySource = Source.legacyFallbackDbValue(source);
+                        if (legacySource.isPresent()) {
+                            statement.bind("legacy_source", legacySource.get());
+                        }
+                    }
+
+                    Segment segment = startSegment("spans", "Clickhouse", "metadataPaths");
+
+                    return Mono.from(statement.execute())
+                            .flatMapMany(result -> result.map((row, rowMetadata) -> row.get("path", String.class)))
+                            .collectList()
+                            .doFinally(signalType -> endSegment(segment));
+                }));
     }
 
     private Mono<SpanPage> find(int page, int size, SpanSearchCriteria spanSearchCriteria, Long total) {

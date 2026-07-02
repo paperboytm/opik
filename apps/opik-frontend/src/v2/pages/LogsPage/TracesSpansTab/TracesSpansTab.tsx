@@ -695,12 +695,16 @@ const buildSharedDynamicChips = ({
   scoreOptions,
   feedbackScoresLabel,
   isGuardrailsEnabled,
+  fromTime,
+  toTime,
 }: {
   projectId: string;
   type: TRACE_DATA_TYPE;
   scoreOptions: ChipOptionsResult;
   feedbackScoresLabel: string;
   isGuardrailsEnabled: boolean;
+  fromTime?: string;
+  toTime?: string;
 }): Record<string, ChipDefinition> => {
   const entityType: "spans" | "traces" =
     type === TRACE_DATA_TYPE.spans ? "spans" : "traces";
@@ -770,6 +774,8 @@ const buildSharedDynamicChips = ({
           rootKeys: ["metadata"],
           excludeRoot: true,
           logsSource: LOGS_SOURCE.sdk,
+          fromTime,
+          toTime,
         }),
       },
       value: { placeholder: "value" },
@@ -998,6 +1004,8 @@ export const TracesSpansTab: React.FC<TracesSpansTabProps> = ({
         scoreOptions: traceScoreOptions,
         feedbackScoresLabel: "Trace feedback scores",
         isGuardrailsEnabled,
+        fromTime: intervalStart,
+        toTime: intervalEnd,
       }),
       span_feedback_scores: {
         id: "span_feedback_scores",
@@ -1019,7 +1027,14 @@ export const TracesSpansTab: React.FC<TracesSpansTabProps> = ({
       ...dynamicChips,
     };
     return compact(TRACE_CHIP_ORDER.map((id) => byId[id]));
-  }, [isGuardrailsEnabled, projectId, traceScoreOptions, spanScoreOptions]);
+  }, [
+    intervalEnd,
+    intervalStart,
+    isGuardrailsEnabled,
+    projectId,
+    traceScoreOptions,
+    spanScoreOptions,
+  ]);
 
   const spanChipDefinitions = useMemo<ChipDefinition[]>(() => {
     const dynamicChips: Record<string, ChipDefinition> = {
@@ -1038,6 +1053,8 @@ export const TracesSpansTab: React.FC<TracesSpansTabProps> = ({
         scoreOptions: spanScoreOptions,
         feedbackScoresLabel: "Feedback scores",
         isGuardrailsEnabled,
+        fromTime: intervalStart,
+        toTime: intervalEnd,
       }),
     };
     const byId: Record<string, ChipDefinition> = {
@@ -1045,7 +1062,13 @@ export const TracesSpansTab: React.FC<TracesSpansTabProps> = ({
       ...dynamicChips,
     };
     return compact(SPAN_CHIP_ORDER.map((id) => byId[id]));
-  }, [isGuardrailsEnabled, projectId, spanScoreOptions]);
+  }, [
+    intervalEnd,
+    intervalStart,
+    isGuardrailsEnabled,
+    projectId,
+    spanScoreOptions,
+  ]);
 
   const chipDefinitions =
     type === TRACE_DATA_TYPE.traces
