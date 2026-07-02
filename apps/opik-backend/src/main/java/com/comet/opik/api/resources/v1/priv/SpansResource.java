@@ -10,6 +10,7 @@ import com.comet.opik.api.FeedbackScore;
 import com.comet.opik.api.FeedbackScoreBatchContainer;
 import com.comet.opik.api.FeedbackScoreNames;
 import com.comet.opik.api.InstantToUUIDMapper;
+import com.comet.opik.api.MetadataPathsResponse;
 import com.comet.opik.api.ProjectStats;
 import com.comet.opik.api.Span;
 import com.comet.opik.api.SpanBatch;
@@ -49,6 +50,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.inject.Inject;
 import jakarta.inject.Provider;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.BadRequestException;
@@ -105,6 +107,38 @@ public class SpansResource {
 
     private final @NonNull Provider<RequestContext> requestContext;
     private final @NonNull Streamer streamer;
+
+    @GET
+    @Path("/metadata/paths")
+    @Operation(operationId = "getSpanMetadataPaths", summary = "Get span metadata paths", description = "Get distinct span metadata paths for autocomplete without loading span rows", responses = {
+            @ApiResponse(responseCode = "200", description = "Span metadata paths", content = @Content(schema = @Schema(implementation = MetadataPathsResponse.class)))})
+    @RateLimited(value = "getSpanMetadataPaths:{workspaceId}", shouldAffectWorkspaceLimit = false, shouldAffectUserGeneralLimit = false)
+    public Response getSpanMetadataPaths(
+            @QueryParam("project_id") @NotNull UUID projectId,
+            @QueryParam("trace_id") UUID traceId,
+            @QueryParam("type") SpanType type,
+            @QueryParam("from_time") @Schema(description = "Filter spans created from this time (ISO-8601 format).") Instant startTime,
+            @QueryParam("to_time") @Schema(description = "Filter spans created up to this time (ISO-8601 format).") Instant endTime,
+            @QueryParam("source") @Schema(description = "Filter spans by source.") String source,
+            @QueryParam("limit") @Min(1) @Max(1000) @DefaultValue("100") int limit) {
+
+        validateTimeRangeParameters(startTime, endTime);
+
+        var searchCriteria = SpanSearchCriteria.builder()
+                .projectId(projectId)
+                .traceId(traceId)
+                .type(type)
+                .uuidFromTime(instantToUUIDMapper.toLowerBound(startTime))
+                .uuidToTime(instantToUUIDMapper.toUpperBound(endTime))
+                .build();
+
+        var response = spanService.getMetadataPaths(searchCriteria, StringUtils.trimToNull(source), limit)
+                .map(MetadataPathsResponse::new)
+                .contextWrite(ctx -> setRequestContext(ctx, requestContext))
+                .block();
+
+        return Response.ok(response).build();
+    }
 
     @GET
     @Operation(operationId = "getSpansByProject", summary = "Get spans by project_name or project_id and optionally by trace_id and/or type", description = "Get spans by project_name or project_id and optionally by trace_id and/or type", responses = {

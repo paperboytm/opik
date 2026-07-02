@@ -9,6 +9,7 @@ import com.comet.opik.api.FeedbackScore;
 import com.comet.opik.api.FeedbackScoreBatchContainer;
 import com.comet.opik.api.FeedbackScoreItem;
 import com.comet.opik.api.FeedbackScoreNames;
+import com.comet.opik.api.MetadataPathsResponse;
 import com.comet.opik.api.Project;
 import com.comet.opik.api.ReactServiceErrorResponse;
 import com.comet.opik.api.Source;
@@ -4553,6 +4554,66 @@ class SpansResourceTest {
             SpanAssertions.assertSpan(page.content(),
                     List.of(unknownSourceSpan, sdkSpan),
                     List.of(experimentSpan), USER);
+        }
+    }
+
+    @Nested
+    @DisplayName("Get span metadata paths")
+    class GetSpanMetadataPaths {
+
+        @Test
+        @DisplayName("returns metadata paths for SDK spans including legacy unknown source")
+        void getMetadataPaths__whenSourceSdk__thenIncludesLegacyUnknownSource() {
+            var projectName = "span-metadata-paths-" + UUID.randomUUID();
+            var trace = podamFactory.manufacturePojo(Trace.class).toBuilder()
+                    .projectName(projectName)
+                    .build();
+            var traceId = traceResourceClient.createTrace(trace, API_KEY, TEST_WORKSPACE);
+
+            var sdkSpan = podamFactory.manufacturePojo(Span.class).toBuilder()
+                    .projectName(projectName)
+                    .traceId(traceId)
+                    .source(Source.SDK)
+                    .metadata(JsonUtils.getJsonNodeFromString("{\"agent_name\":\"chat\"}"))
+                    .usage(null)
+                    .feedbackScores(null)
+                    .build();
+            var unknownSourceSpan = podamFactory.manufacturePojo(Span.class).toBuilder()
+                    .projectName(projectName)
+                    .traceId(traceId)
+                    .source(null)
+                    .metadata(JsonUtils.getJsonNodeFromString("{\"runtime_user_email\":\"levi\"}"))
+                    .usage(null)
+                    .feedbackScores(null)
+                    .build();
+            var experimentSpan = podamFactory.manufacturePojo(Span.class).toBuilder()
+                    .projectName(projectName)
+                    .traceId(traceId)
+                    .source(Source.EXPERIMENT)
+                    .metadata(JsonUtils.getJsonNodeFromString("{\"experiment_only\":\"no\"}"))
+                    .usage(null)
+                    .feedbackScores(null)
+                    .build();
+
+            spanResourceClient.createSpan(sdkSpan, API_KEY, TEST_WORKSPACE);
+            spanResourceClient.createSpan(unknownSourceSpan, API_KEY, TEST_WORKSPACE);
+            spanResourceClient.createSpan(experimentSpan, API_KEY, TEST_WORKSPACE);
+            var projectId = projectResourceClient.getByName(projectName, API_KEY, TEST_WORKSPACE).id();
+
+            try (var response = client.target("%s/v1/private/spans".formatted(baseURI))
+                    .path("metadata")
+                    .path("paths")
+                    .queryParam("project_id", projectId)
+                    .queryParam("source", Source.SDK.getValue())
+                    .request()
+                    .header(HttpHeaders.AUTHORIZATION, API_KEY)
+                    .header(WORKSPACE_HEADER, TEST_WORKSPACE)
+                    .get()) {
+
+                assertThat(response.getStatus()).isEqualTo(HttpStatus.SC_OK);
+                var body = response.readEntity(MetadataPathsResponse.class);
+                assertThat(body.paths()).containsExactly("agent_name", "runtime_user_email");
+            }
         }
     }
 
