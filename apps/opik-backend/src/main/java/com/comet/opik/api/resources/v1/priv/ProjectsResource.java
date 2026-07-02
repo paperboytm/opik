@@ -3,12 +3,16 @@ package com.comet.opik.api.resources.v1.priv;
 import com.codahale.metrics.annotation.Timed;
 import com.comet.opik.api.BatchDelete;
 import com.comet.opik.api.FeedbackScoreNames;
+import com.comet.opik.api.InstantToUUIDMapper;
 import com.comet.opik.api.Page;
 import com.comet.opik.api.Project;
+import com.comet.opik.api.ProjectLogsExistence;
 import com.comet.opik.api.ProjectRetrieve;
 import com.comet.opik.api.ProjectStatsSummary;
 import com.comet.opik.api.ProjectUpdate;
+import com.comet.opik.api.Source;
 import com.comet.opik.api.TokenUsageNames;
+import com.comet.opik.api.VisibilityMode;
 import com.comet.opik.api.error.ErrorMessage;
 import com.comet.opik.api.filter.FiltersFactory;
 import com.comet.opik.api.filter.SpanFilter;
@@ -27,6 +31,8 @@ import com.comet.opik.domain.KpiCardService;
 import com.comet.opik.domain.ProjectCriteria;
 import com.comet.opik.domain.ProjectMetricsService;
 import com.comet.opik.domain.ProjectService;
+import com.comet.opik.domain.SpanService;
+import com.comet.opik.domain.TraceService;
 import com.comet.opik.infrastructure.auth.RequestContext;
 import com.comet.opik.infrastructure.auth.RequiredPermissions;
 import com.comet.opik.infrastructure.auth.WorkspaceUserPermission;
@@ -62,6 +68,8 @@ import jakarta.ws.rs.core.UriInfo;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import reactor.core.publisher.Mono;
 
 import java.time.Instant;
 import java.util.Collections;
@@ -73,6 +81,7 @@ import static com.comet.opik.api.Project.ProjectPage;
 import static com.comet.opik.api.Project.View;
 import static com.comet.opik.domain.ProjectMetricsService.ERR_START_BEFORE_END;
 import static com.comet.opik.utils.AsyncUtils.setRequestContext;
+import static com.comet.opik.utils.ValidationUtils.validateTimeRangeParameters;
 
 @Path("/v1/private/projects")
 @Produces(MediaType.APPLICATION_JSON)
@@ -91,6 +100,9 @@ public class ProjectsResource {
     private final @NonNull FeedbackScoreService feedbackScoreService;
     private final @NonNull FiltersFactory filtersFactory;
     private final @NonNull KpiCardService kpiCardService;
+    private final @NonNull TraceService traceService;
+    private final @NonNull SpanService spanService;
+    private final @NonNull InstantToUUIDMapper instantToUUIDMapper;
 
     @GET
     @Operation(operationId = "findProjects", summary = "Find projects", description = "Find projects", responses = {
@@ -138,6 +150,46 @@ public class ProjectsResource {
         return Response.ok().entity(project).build();
     }
 
+    @GET
+    @Path("{id}/logs/existence")
+    @Operation(operationId = "getProjectLogsExistence", summary = "Check if a project has traces or spans", description = "Returns whether the project has traces or spans for the requested log source and time range.", responses = {
+            @ApiResponse(responseCode = "200", description = "Project logs existence", content = @Content(schema = @Schema(implementation = ProjectLogsExistence.class)))})
+    @RequiredPermissions(WorkspaceUserPermission.PROJECT_DATA_VIEW)
+    public Response getProjectLogsExistence(
+            @PathParam("id") UUID id,
+            @QueryParam("from_time") @Schema(description = "Filter logs created from this time (ISO-8601 format).") Instant startTime,
+            @QueryParam("to_time") @Schema(description = "Filter logs created up to this time (ISO-8601 format). If not provided, defaults to current time. Must be after 'from_time'.") Instant endTime,
+            @QueryParam("source") @Schema(description = "Filter logs by source.") String source,
+            @QueryParam("visibility_mode") @DefaultValue("default") @Schema(description = "Filter traces by visibility mode.") String visibilityMode) {
+
+        validateTimeRangeParameters(startTime, endTime);
+
+        Source parsedSource = parseSource(source);
+        VisibilityMode parsedVisibilityMode = parseVisibilityMode(visibilityMode);
+
+        var uuidFromTime = instantToUUIDMapper.toLowerBound(startTime);
+        var uuidToTime = instantToUUIDMapper.toUpperBound(endTime);
+
+        String workspaceId = requestContext.get().getWorkspaceId();
+        log.info("Checking logs existence for project id '{}' on workspace_id '{}', source '{}', visibilityMode '{}'",
+                id, workspaceId, parsedSource, parsedVisibilityMode);
+
+        ProjectLogsExistence existence = Mono
+                .zip(
+                        traceService.hasProjectTraces(id, uuidFromTime, uuidToTime,
+                                parsedSource == null ? null : parsedSource.getValue(),
+                                parsedVisibilityMode == null ? null : parsedVisibilityMode.getValue()),
+                        spanService.hasProjectSpans(id, uuidFromTime, uuidToTime,
+                                parsedSource == null ? null : parsedSource.getValue()))
+                .map(result -> new ProjectLogsExistence(result.getT1(), result.getT2()))
+                .contextWrite(ctx -> setRequestContext(ctx, requestContext))
+                .block();
+
+        log.info("Checked logs existence for project id '{}' on workspace_id '{}': '{}'", id, workspaceId, existence);
+
+        return Response.ok(existence).build();
+    }
+
     @POST
     @Operation(operationId = "createProject", summary = "Create project", description = "Create project", responses = {
             @ApiResponse(responseCode = "201", description = "Created", headers = {
@@ -183,6 +235,24 @@ public class ProjectsResource {
         log.info("Updated project with id '{}' on workspaceId '{}'", id, workspaceId);
 
         return Response.noContent().build();
+    }
+
+    private Source parseSource(String source) {
+        String value = StringUtils.trimToNull(source);
+        if (value == null) {
+            return null;
+        }
+        return Source.fromString(value)
+                .orElseThrow(() -> new BadRequestException("Invalid source: %s".formatted(value)));
+    }
+
+    private VisibilityMode parseVisibilityMode(String visibilityMode) {
+        String value = StringUtils.trimToNull(visibilityMode);
+        if (value == null) {
+            return null;
+        }
+        return VisibilityMode.fromString(value)
+                .orElseThrow(() -> new BadRequestException("Invalid visibility_mode: %s".formatted(value)));
     }
 
     @DELETE

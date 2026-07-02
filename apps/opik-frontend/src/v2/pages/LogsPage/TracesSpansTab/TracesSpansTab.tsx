@@ -132,6 +132,7 @@ import { formatDuration } from "@/lib/date";
 import { formatCost } from "@/lib/money";
 import TimeCell from "@/shared/DataTableCells/TimeCell";
 import useTracesOrSpansStatistic from "@/hooks/useTracesOrSpansStatistic";
+import useProjectLogsExistence from "@/api/projects/useProjectLogsExistence";
 import { useDynamicColumnsCache } from "@/hooks/useDynamicColumnsCache";
 import { useIsFeatureEnabled } from "@/contexts/feature-toggles-provider";
 import { FeatureToggleKeys } from "@/types/feature-toggles";
@@ -1210,22 +1211,23 @@ export const TracesSpansTab: React.FC<TracesSpansTabProps> = ({
       },
     );
 
-  const { data: existenceData } = useTracesOrSpansList(
-    {
-      projectId,
-      type: type as TRACE_DATA_TYPE,
-      page: 1,
-      size: 1,
-      stripAttachments: true,
-      fromTime: intervalStart,
-      toTime: intervalEnd,
-      logsSource: LOGS_SOURCE.sdk,
-    },
-    {
-      enabled: isTableDataEnabled,
-    },
-  );
-  const hasProjectData = (existenceData?.total ?? 0) > 0;
+  const { data: existenceData, isPending: isExistencePending } =
+    useProjectLogsExistence(
+      {
+        projectId,
+        fromTime: intervalStart,
+        toTime: intervalEnd,
+        logsSource: LOGS_SOURCE.sdk,
+      },
+      {
+        enabled: isTableDataEnabled,
+      },
+    );
+  const hasProjectData =
+    type === TRACE_DATA_TYPE.traces
+      ? Boolean(existenceData?.has_traces)
+      : Boolean(existenceData?.has_spans);
+  const isExistenceLoading = isTableDataEnabled && isExistencePending;
 
   const isTableLoading =
     isPending || isFeedbackScoresPending || isSpanFeedbackScoresPending;
@@ -1243,7 +1245,11 @@ export const TracesSpansTab: React.FC<TracesSpansTabProps> = ({
   );
 
   const showEmptyState =
-    !isTableLoading && !hasProjectData && rows.length === 0 && page === 1;
+    !isTableLoading &&
+    !isExistenceLoading &&
+    !hasProjectData &&
+    rows.length === 0 &&
+    page === 1;
 
   // Extract metadata paths directly from loaded traces/spans data
   const metadataPaths = useMemo(() => {
