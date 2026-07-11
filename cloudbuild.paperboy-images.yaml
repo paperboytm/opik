@@ -1,0 +1,107 @@
+timeout: 7200s
+
+options:
+  machineType: E2_HIGHCPU_32
+  diskSizeGb: 200
+  logging: CLOUD_LOGGING_ONLY
+
+substitutions:
+  _REGISTRY: us-central1-docker.pkg.dev/gen-lang-client-0436525842/paperboy
+  _TAG: local
+
+steps:
+  - id: build-sandbox-executor
+    name: gcr.io/cloud-builders/docker
+    dir: apps/opik-sandbox-executor-python
+    waitFor: ["-"]
+    env:
+      - DOCKER_BUILDKIT=1
+    args:
+      - build
+      - --build-arg
+      - OPIK_VERSION=${_TAG}
+      - -t
+      - ${_REGISTRY}/opik-sandbox-executor-python:${_TAG}
+      - .
+
+  - id: build-backend
+    name: gcr.io/cloud-builders/docker
+    dir: apps/opik-backend
+    waitFor: ["-"]
+    env:
+      - DOCKER_BUILDKIT=1
+    args:
+      - build
+      - --build-arg
+      - OPIK_VERSION=${_TAG}
+      - -t
+      - ${_REGISTRY}/opik-backend:${_TAG}
+      - .
+
+  - id: build-frontend
+    name: gcr.io/cloud-builders/docker
+    dir: apps/opik-frontend
+    waitFor: ["-"]
+    env:
+      - DOCKER_BUILDKIT=1
+    args:
+      - build
+      - --build-arg
+      - OPIK_VERSION=${_TAG}
+      - --build-arg
+      - BUILD_MODE=production
+      - -t
+      - ${_REGISTRY}/opik-frontend:${_TAG}
+      - .
+
+  - id: push-sandbox-executor
+    name: gcr.io/cloud-builders/docker
+    waitFor: ["build-sandbox-executor"]
+    args:
+      - push
+      - ${_REGISTRY}/opik-sandbox-executor-python:${_TAG}
+
+  - id: package-sandbox-executor
+    name: gcr.io/cloud-builders/docker
+    waitFor: ["build-sandbox-executor"]
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        docker save "${_REGISTRY}/opik-sandbox-executor-python:${_TAG}" \
+          | gzip > apps/opik-python-backend/opik-sandbox-executor-python.tar.gz
+
+  - id: build-python-backend
+    name: gcr.io/cloud-builders/docker
+    dir: apps/opik-python-backend
+    waitFor: ["package-sandbox-executor"]
+    env:
+      - DOCKER_BUILDKIT=1
+    args:
+      - build
+      - --build-arg
+      - OPIK_VERSION=${_TAG}
+      - -t
+      - ${_REGISTRY}/opik-python-backend:${_TAG}
+      - .
+
+  - id: push-backend
+    name: gcr.io/cloud-builders/docker
+    waitFor: ["build-backend"]
+    args:
+      - push
+      - ${_REGISTRY}/opik-backend:${_TAG}
+
+  - id: push-frontend
+    name: gcr.io/cloud-builders/docker
+    waitFor: ["build-frontend"]
+    args:
+      - push
+      - ${_REGISTRY}/opik-frontend:${_TAG}
+
+  - id: push-python-backend
+    name: gcr.io/cloud-builders/docker
+    waitFor: ["build-python-backend"]
+    args:
+      - push
+      - ${_REGISTRY}/opik-python-backend:${_TAG}
